@@ -1,0 +1,101 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+
+# uv
+uv.lock
+
+# Environments and sensitive configurations
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+secrets/
+.secrets
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Testing and coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# mypy / type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyright/
+.pytype/
+
+# Ruff
+.ruff_cache/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Data files
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.json.gz
+*.zip
+*.tar.gz
+
+# Generated documentation
+docs/_build/
+site/
+.sphinx/
+
+# Profiling
+*.prof
+
+# Temporary files
+*.tmp
+scratch/

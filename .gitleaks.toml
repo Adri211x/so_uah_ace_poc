@@ -1,0 +1,15 @@
+# Gitleaks configuration
+# See https://github.com/gitleaks/gitleaks for more information
+
+title = "Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''\.gitleaks\.toml''',
+    '''docs/''',
+    '''\.pre-commit-config\.yaml''',
+]

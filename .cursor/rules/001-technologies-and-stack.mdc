@@ -1,0 +1,34 @@
+---
+description: "Project technology stack and core dependencies"
+globs:
+  - "**/*.py"
+  - "pyproject.toml"
+tags: [technologies, stack, dependencies]
+priority: 1
+version: "1.0"
+---
+
+# Technologies and Stack
+
+## Core Technologies
+
+- **Python:** 3.12 (required, minimum version)
+- **Package Manager:** uv (required)
+- **Web Framework:** FastAPI 0.104+
+- **ORM:** SQLAlchemy 2.0+
+- **Validation:** Pydantic 2.0+
+- **Linter/Formatter:** Ruff
+
+## Package Management Rules
+
+- Always use `uv` to manage dependencies
+- Use `uv add <package>` to add new dependencies
+- Use `uv add --dev <package>` for development dependencies
+- Use `uv sync` to install dependencies
+- Lock dependencies with `uv lock`
+- Do not use `pip` directly, use `uv pip` if necessary
+
+## Version Specification
+
+- Specify Python version in `pyproject.toml`: `requires-python = ">=3.12"`
+- Pin major versions for core dependencies

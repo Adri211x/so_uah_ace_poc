@@ -1,0 +1,65 @@
+---
+description: "Logging standards and practices"
+globs:
+  - "**/*.py"
+tags: [logging, debugging]
+priority: 2
+version: "1.0"
+---
+
+# Logging Conventions
+
+## Standard Practice
+
+- Use `logging.getLogger(__name__)` instead of `print()`
+- Do not use `print()` in production code
+- Configure appropriate log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- All log messages must be in English
+- Use structured logging when possible
+
+## Important: Do NOT use f-strings with logging
+
+Use logging's built-in formatting instead of f-strings:
+
+```python
+# Incorrect
+logger.info(f"User {user_id} logged in")
+
+# Correct
+logger.info("User %s logged in", user_id)
+```
+
+## Example Setup
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+logger.debug("Detailed information for debugging")
+logger.info("Informative event")
+logger.warning("Warning that does not stop execution")
+logger.error("Error requiring attention")
+logger.critical("Critical error that may stop the application")
+```
+
+## Exceptions
+
+- Temporary personal development scripts (with comment indicating it)
+- Educational examples (with comment indicating it)
+- Command line scripts that must show output to the user
+
+## Error Logging
+
+When logging errors:
+- Include context (user_id, request_id, etc.)
+- Use `exc_info=True` to capture stack traces
+- Do not log sensitive information (passwords, tokens, etc.)
+
+```python
+try:
+    user = get_user(user_id)
+except UserNotFoundError:
+    logger.error("User not found: %s", user_id, exc_info=True)
+    raise
+```

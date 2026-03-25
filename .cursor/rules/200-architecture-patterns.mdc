@@ -1,0 +1,57 @@
+---
+description: "Architectural patterns and design principles"
+globs:
+  - "**/*.py"
+tags: [architecture, patterns, design]
+priority: 3
+version: "1.0"
+---
+
+# Architecture Patterns
+
+## Core Patterns
+
+### Repository Pattern
+- Used for data access abstraction
+- Allows easy swapping of data sources
+- Examples: `UserRepository`, `OrderRepository`
+- Keep business logic out of repositories
+
+### Dependency Injection
+- Used throughout the application
+- Enables testability and loose coupling
+- Implemented using FastAPI's dependency system
+- Inject dependencies via function parameters or class constructors
+
+### Service Layer Pattern
+- Business logic belongs in service layer
+- Services orchestrate between repositories and API layer
+- Controllers should be thin, delegating to services
+
+### Layered Architecture
+
+```
+API Layer (Endpoints)
+    |
+Service Layer (Business Logic)
+    |
+Repository Layer (Data Access)
+    |
+Database
+```
+
+## Separation of Concerns
+
+- **API Layer:** Handle HTTP requests/responses, validation
+- **Service Layer:** Business logic, orchestration
+- **Repository Layer:** Data persistence, queries
+- **Models:** Data structures, database models
+- **Schemas:** Validation schemas (Pydantic)
+
+## Dependency Rules
+
+- API layer can depend on Service layer
+- Service layer can depend on Repository layer
+- Repository layer can depend on Models
+- No circular dependencies
+- Lower layers should NOT depend on upper layers

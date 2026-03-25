@@ -1,0 +1,37 @@
+---
+description: "Code language conventions and naming standards"
+globs:
+  - "**/*.py"
+  - "**/*.md"
+tags: [language, naming, conventions]
+priority: 1
+version: "1.0"
+---
+
+# Code Language and Naming
+
+## Language: English (Required)
+
+**All code, comments, and technical documentation MUST be in English.**
+
+### Application
+
+- Variable names, function names, class names, module names
+- Code comments and docstrings
+- Log messages
+- Error/exception messages
+- Technical documentation
+- Code file and directory names
+
+### File Naming Conventions
+
+- **Lowercase required:** All file and directory names must be in lowercase
+- **Word separation:** Use underscores to separate words
+  - Examples: `user_service.py`, `api_endpoints/`, `database_models.py`
+  - Documentation: `git_conventions.md`, not `GIT_CONVENTIONS.md`
+- **Code files:** Follow Python conventions (snake_case)
+
+### Exceptions
+
+- User-facing documentation (main README, user guides) may be in Spanish if project requires
+- Very specific business terms may include Spanish in quotes if no clear English equivalent exists

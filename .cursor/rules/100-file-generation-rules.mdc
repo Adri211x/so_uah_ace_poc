@@ -1,0 +1,49 @@
+---
+description: "Rules for file generation and documentation handling"
+globs:
+  - "**/*.md"
+  - "**/*.py"
+tags: [file-generation, documentation]
+priority: 2
+version: "1.0"
+---
+
+# File Generation Rules
+
+## Automatic File Generation
+
+### DO NOT Generate Automatically
+
+- **README.md files:** Do NOT generate automatically
+- **CHANGELOG.md files:** Do NOT generate automatically
+- **Documentation files:** Do NOT generate automatically
+- **Test files:** Only generate when explicitly requested or when creating new functionality
+
+### When File Generation is Acceptable
+
+- User explicitly requests: "create a README for this module"
+- Creating a significant new component/package and user confirms
+- Part of approved implementation plan
+- Explicitly requested in the task description
+
+### Documentation Update Rules
+
+- Prefer updating existing documentation over creating new files
+- If new documentation is needed, ask the user first
+- Do not update main README without explicit confirmation
+
+## Icons and Emojis Prohibition
+
+**Strict rule:** Do NOT include icons, emojis, or special characters in:
+
+- Source code
+- Logs and console messages
+- Code comments
+- Error/exception messages
+- Technical documentation (except main README if necessary)
+
+### Rationale
+
+- Makes reading difficult in terminals and logs
+- Can cause encoding problems
+- Not standard in professional code

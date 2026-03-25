@@ -1,0 +1,93 @@
+# ============================================================================
+# so_ua_ace_poc - CI/CD Pipeline
+# ============================================================================
+include:
+  - project: 'smartops/smartops-cicd'
+    ref: main
+    file:
+      - 'templates/workflow.yml'
+      - 'templates/docker.yml'
+      - 'templates/python-test.yml'
+      - 'templates/ruff.yml'
+      - 'templates/gitleaks.yml'
+      - 'templates/trivy.yml'
+      - 'templates/syft.yml'
+      - 'templates/semgrep.yml'
+      - 'templates/security-report.yml'
+      - 'templates/notifications.yml'
+
+stages:
+  - lint
+  - test
+  - security
+  - report
+  - notify
+  - build
+
+variables:
+  DOCKER_REGISTRY: nexusregistry.opensolutions.cloud
+  DOCKER_IMAGE: so_ua_ace_poc
+  DOCKER_BUILDKIT: 1
+
+# -- Lint ----------------------------------------------------------------
+lint:
+  extends: .ruff-lint
+  variables:
+    PYTHON_VERSION: "3.12"
+  allow_failure: false
+
+# -- Tests ---------------------------------------------------------------
+test:
+  extends: .python-test
+  variables:
+    PYTHON_VERSION: "3.12"
+    PYTEST_ENABLE_COVERAGE: "true"
+    PYTEST_COVERAGE_SOURCE: "src"
+    PYTEST_ARGS: "tests/"
+  allow_failure: false
+  needs: [lint]
+
+# -- Security scans ------------------------------------------------------
+security:
+  extends: .gitleaks-scan
+  variables:
+    GITLEAKS_VERSION: "latest"
+    GITLEAKS_CONFIG: ".gitleaks.toml"
+
+trivy-scan:
+  extends: .trivy-scan
+  variables:
+    TRIVY_SCAN_TYPE: "fs"
+    TRIVY_SEVERITY: "CRITICAL,HIGH,MEDIUM,LOW"
+
+sbom:
+  extends: .syft-sbom
+  variables:
+    SYFT_SOURCE: "dir"
+    SYFT_FORMAT: "json"
+
+sast:
+  extends: .semgrep-scan
+  variables:
+    SEMGREP_RULES: "p/python"
+
+# -- Report --------------------------------------------------------------
+security-report:
+  extends: .security-report
+  variables:
+    REPORT_TITLE: "so_ua_ace_poc - Security & Quality Report"
+    PROJECT_NAME: "SmartOps so_ua_ace_poc"
+
+# -- Notify --------------------------------------------------------------
+notify-report:
+  extends: .notify-report
+  variables:
+    NOTIFICATION_TITLE: "Reporte de Seguridad y Calidad"
+    PROJECT_DISPLAY_NAME: "SmartOps so_ua_ace_poc"
+
+# -- Build ---------------------------------------------------------------
+build:
+  extends: .docker-build
+
+release:
+  extends: .docker-release

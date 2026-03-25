@@ -1,0 +1,61 @@
+---
+description: "Error handling and exception management"
+globs:
+  - "**/*.py"
+tags: [error-handling, exceptions]
+priority: 3
+version: "1.0"
+---
+
+# Error Handling
+
+## Exception Strategy
+
+### Use Specific Exceptions
+
+- Create custom exceptions for domain errors
+- Use specific exception types, not generic `Exception`
+- Example: `UserNotFoundError`, `InvalidCredentialsError`, `ValidationError`
+
+### Exception Hierarchy
+
+```python
+class AppError(Exception):
+    """Base exception for application errors."""
+    pass
+
+class UserNotFoundError(AppError):
+    """Raised when a user is not found."""
+    pass
+
+class InvalidCredentialsError(AppError):
+    """Raised when credentials are invalid."""
+    pass
+```
+
+## Error Messages
+
+- Include descriptive error messages in English
+- Provide context (what operation failed, why)
+- Do not expose internal implementation details
+- Include identifiers when relevant (user_id, order_id, etc.)
+
+## Error Logging
+
+- Log errors with appropriate context
+- Use `logger.error()` or `logger.exception()`
+- Include `exc_info=True` for unexpected exceptions
+- Do not silently catch and ignore exceptions
+
+### Example
+
+```python
+try:
+    user = get_user(user_id)
+except UserNotFoundError:
+    logger.error("User not found: %s", user_id, exc_info=True)
+    raise
+except Exception:
+    logger.exception("Unexpected error retrieving user %s", user_id)
+    raise AppError("Failed to retrieve user") from e
+```

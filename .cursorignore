@@ -1,0 +1,35 @@
+# Cursor-specific exclusions
+# Patterns in .gitignore are automatically excluded by Cursor
+
+# Large data files that may be tracked in Git but should not be in AI context
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.json.gz
+
+# Generated documentation (if tracked in Git)
+docs/_build/
+site/
+
+# Explicitly exclude sensitive files (extra safety layer)
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.p12
+secrets/
+.secrets
+
+# Temporary analysis or development files
+*.tmp
+analysis/
+scratch/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Coverage and profiling
+htmlcov/
+*.prof

@@ -1,0 +1,96 @@
+# Project Rules for AI-Assisted Development
+
+> For modular rules, see `.cursor/rules/` directory.
+
+## Technologies
+- Python 3.12
+- Package manager: uv
+- FastAPI for REST APIs
+- SQLAlchemy for ORM
+- Pydantic for validation
+- Ruff for linting and formatting
+
+## Patterns
+- Use dependency injection
+- Separate business logic from controllers
+- Validate inputs with Pydantic schemas
+- Follow repository pattern for data access
+- Use service layer for business logic
+
+## Code Language
+- All code, comments, docstrings, logs, and error messages MUST be in English
+- Variable names, function names, class names: use English
+- Comments and docstrings: write in English
+- Log messages and exceptions: in English
+- Technical documentation: in English
+
+## File Naming
+- File and directory names must be in lowercase with underscores for separation
+- Documentation files: use lowercase (e.g., git_conventions.md)
+- Code files: follow Python conventions (snake_case)
+- Examples: `user_service.py`, `api_endpoints/`, `database_models.py`
+
+## File Generation Rules
+- DO NOT automatically generate README.md files
+- DO NOT include icons/emojis in code, logs, or documentation
+- Use logging instead of print statements
+- Only create documentation files when explicitly requested
+- Prefer updating existing documentation over creating new files
+- If new documentation is needed, ask the user first
+
+## Logging
+- Use logging.getLogger(__name__) instead of print()
+- Do not use print() in production code
+- Configure appropriate log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- All log messages must be in English
+- Use structured logging when possible
+- DO NOT use f-strings with logging (use % formatting or extra parameter instead)
+- Example: logger.info("User %s logged in", user_id) NOT logger.info(f"User {user_id} logged in")
+
+## Package Manager
+- Use uv to manage dependencies and virtual environments
+- Use uv add to add new dependencies
+- Use uv sync to install dependencies
+- Do not use pip directly, use uv pip if necessary
+- Lock dependencies with uv lock
+
+## Code Quality
+- Use type hints for all function parameters and return types
+- Include docstrings for all public functions and classes (Google format)
+- Write unit tests for new functionality
+- Follow PEP 8 style guide
+- Use Ruff for linting and formatting (line length: 100)
+
+## Error Handling
+- Use specific exceptions, not generic Exception
+- Include descriptive error messages in English
+- Log errors with appropriate context
+- Do not silently catch and ignore exceptions
+
+## Testing
+- Write tests for all new features
+- Use pytest as testing framework
+- Aim for >80% code coverage
+- Use fixtures for test data setup
+- Test both happy paths and edge cases
+
+## Memory Bank
+- If the memory-bank/ directory exists:
+  - Read ALL files at the start of a session
+  - Update activeContext.md with current changes
+  - Document technical decisions in systemPatterns.md
+  - Keep progress.md updated
+  - When "update memory bank" is requested, review all files
+
+## Git Conventions
+- Follow Conventional Commits format
+- Include Jira ticket key in commit messages: [TICKET-123]
+- Commits should be atomic and focused
+- Write descriptive commit messages in English
+
+## Code Organization
+- Group related functionality in modules
+- Use clear separation of concerns
+- Keep functions focused and single-purpose
+- Avoid deep nesting (max 3-4 levels)
+- Use meaningful variable and function names
