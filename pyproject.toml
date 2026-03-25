@@ -5,7 +5,7 @@ description = ""
 requires-python = ">=3.12"
 dependencies = []
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
@@ -41,6 +41,9 @@ known-first-party = ["src"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-v --tb=short"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/app"]
 
 [build-system]
 requires = ["hatchling"]
