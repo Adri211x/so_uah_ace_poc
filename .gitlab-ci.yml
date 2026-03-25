@@ -75,7 +75,7 @@ sast:
 security-report:
   extends: .security-report
   variables:
-    REPORT_TITLE: "so_ua_ace_poc - Security & Quality Report"
+    REPORT_TITLE: "ACE - POC - so_ua_ace_poc - Security & Quality Report"
     PROJECT_NAME: "SmartOps so_ua_ace_poc"
 
 # -- Notify --------------------------------------------------------------
@@ -83,7 +83,7 @@ notify-report:
   extends: .notify-report
   variables:
     NOTIFICATION_TITLE: "Reporte de Seguridad y Calidad"
-    PROJECT_DISPLAY_NAME: "SmartOps so_ua_ace_poc"
+    PROJECT_DISPLAY_NAME: "SmartOps ACE so_ua_ace_poc"
 
 # -- Build ---------------------------------------------------------------
 build:
