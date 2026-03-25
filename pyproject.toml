@@ -3,7 +3,10 @@ name = "so-ua-ace-poc"
 version = "0.1.0"
 description = ""
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.135.2",
+    "uvicorn[standard]>=0.42.0",
+]
 
 [dependency-groups]
 dev = [
@@ -11,6 +14,7 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.14",
     "pre-commit>=3.6",
+    "httpx>=0.28.1",
 ]
 
 [tool.ruff]

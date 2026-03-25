@@ -20,9 +20,6 @@ build/
 *.egg
 *.whl
 
-# uv
-uv.lock
-
 # Environments and sensitive configurations
 .env
 .env.local
