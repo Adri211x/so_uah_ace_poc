@@ -1,0 +1,45 @@
+[project]
+name = "event-system"
+version = "1.0.0"
+description = "Benchmark dataset and mock MCP server for evaluating AI agents on Kubernetes root cause analysis"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+keywords = ["kubernetes", "root-cause-analysis", "benchmark", "mcp", "dataset", "llm-evaluation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.9.0",
+    "uvicorn>=0.34.0",
+    "httpx>=0.28.0",
+    "pyyaml>=6.0",
+    "docker>=7.1.0",
+    "matplotlib>=3.10.8",
+]
+
+[project.urls]
+Repository = "https://gitlab.datadope.co/smartops/roma"
+Documentation = "https://gitlab.datadope.co/smartops/roma"
+
+[project.scripts]
+event-mock = "event_system.mock_mcp_server:main"
+event-record = "event_system.recorder:main"
+event-enrich = "event_system.enrich_cache:main"
+event-variations = "event_system.generate_variations:main"
+event-splits = "event_system.build_training_split:main"
+event-golden = "event_system.build_golden_entities:main"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

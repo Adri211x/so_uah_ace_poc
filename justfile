@@ -99,6 +99,26 @@ gitleaks:
     gitleaks detect --source . --config .gitleaks.toml
 
 # --------------------------------------------------------------------------
+# Data (event_system)
+# --------------------------------------------------------------------------
+
+# Pull dataset files from MinIO via DVC
+dvc-pull:
+    dvc pull
+
+# Push dataset files to MinIO via DVC
+dvc-push:
+    dvc push
+
+# Run event_system dataset tests (requires dvc pull first)
+test-data:
+    cd data/event_system && uv sync --extra dev && uv run pytest tests/ -v
+
+# Start mock MCP server for a scenario (usage: just mock-server crashloop)
+mock-server scenario:
+    cd data/event_system && uv sync && uv run event-mock --cache cache/kubernetes-{{ scenario }}.json
+
+# --------------------------------------------------------------------------
 # Docker
 # --------------------------------------------------------------------------
 

@@ -2,6 +2,10 @@
 # Patterns in .gitignore are automatically excluded by Cursor
 
 # Large data files that may be tracked in Git but should not be in AI context
+data/event_system/cache/
+data/event_system/data/datasets/
+data/event_system/training_*.json
+data/event_system/uv.lock
 data/raw/
 data/processed/
 *.csv

@@ -9,6 +9,7 @@ Before starting, make sure you have these tools installed:
 | **Python 3.12+** | Runtime | [python.org](https://www.python.org/downloads/) |
 | **uv** | Package manager (replaces pip) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | **just** | Command runner (replaces Makefile) | `cargo install just` or [other methods](https://github.com/casey/just#installation) |
+| **DVC** | Data version control | `uv tool install dvc --with dvc-s3` |
 | **pre-commit** | Git hooks framework | Installed automatically with `just setup` |
 | **Docker** | Containerization (optional) | [docs.docker.com](https://docs.docker.com/get-docker/) |
 
@@ -22,11 +23,14 @@ cd so_ua_ace_poc
 # 2. Run the initial setup (installs deps + configures git hooks)
 just setup
 
-# 3. Start the dev server
+# 3. Pull dataset files from MinIO (requires DVC credentials)
+just dvc-pull
+
+# 4. Start the dev server
 just dev
 ```
 
-That's it. Run `just` (without arguments) to see all available commands.
+Run `just` (without arguments) to see all available commands.
 
 ## Project structure
 
@@ -41,6 +45,9 @@ so_ua_ace_poc/
 |       |-- models/             # Database models (SQLAlchemy)
 |       |-- schemas/            # Request/response schemas (Pydantic)
 |       |-- core/               # Shared config, exceptions, utilities
+|
+|-- data/
+|   |-- event_system/           # Benchmark dataset for agent evaluation (self-contained)
 |
 |-- tests/
 |   |-- unit/                   # Unit tests (fast, no external deps)
@@ -185,6 +192,23 @@ cp .env.example .env
 ```
 
 Never commit `.env` files. They are in `.gitignore`.
+
+## Data: Event System
+
+The `data/event_system/` directory contains a self-contained benchmark dataset for evaluating AI agents on Kubernetes root cause analysis tasks. It includes 559 labeled samples, a mock MCP server, and its own test suite.
+
+Data files are managed with DVC and stored in MinIO (`s3://dvc-ace`). See [data/event_system/README.md](data/event_system/README.md) for full documentation.
+
+```bash
+# Pull dataset files
+just dvc-pull
+
+# Run event_system tests
+just test-data
+
+# Start mock MCP server for a scenario
+just mock-server crashloop
+```
 
 ## Key conventions
 

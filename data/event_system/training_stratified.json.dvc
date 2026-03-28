@@ -1,0 +1,5 @@
+outs:
+- md5: 77ff317f396636f76263054bf8bbbcab
+  size: 234728
+  hash: md5
+  path: training_stratified.json

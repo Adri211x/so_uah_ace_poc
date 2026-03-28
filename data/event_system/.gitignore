@@ -1,0 +1,29 @@
+# SQLite databases (large binary files, pulled via DVC)
+data/databases/*.db
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.log
+/cache
+/training_stratified.json
+/training_leave_variation_out.json
+/training_leave_scenario_out.json
+/training_leave_family_out.json

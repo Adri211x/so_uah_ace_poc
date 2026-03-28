@@ -20,6 +20,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["data/event_system"]
 
 [tool.ruff.lint]
 select = [

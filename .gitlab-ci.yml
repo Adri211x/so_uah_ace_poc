@@ -36,7 +36,7 @@ lint:
     PYTHON_VERSION: "3.12"
   allow_failure: false
 
-# -- Tests ---------------------------------------------------------------
+# -- Tests (application) -------------------------------------------------
 test:
   extends: .python-test
   variables:
@@ -46,6 +46,7 @@ test:
     PYTEST_ARGS: "tests/"
   allow_failure: false
   needs: [lint]
+
 
 # -- Security scans ------------------------------------------------------
 security:

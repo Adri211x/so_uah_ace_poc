@@ -6,11 +6,11 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.8
     hooks:
-      # Run the linter
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
-      # Run the formatter
+        exclude: ^data/event_system/
       - id: ruff-format
+        exclude: ^data/event_system/
 
   # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks

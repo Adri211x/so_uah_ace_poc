@@ -1,0 +1,8 @@
+[core]
+    remote = minio
+    autostage = true
+['remote "minio"']
+    url = s3://dvc-ace/dvc
+    endpointurl = https://minio-api.langfuse.e2e.so.azure.datadope.co:443
+    use_ssl = true
+    listobjects = false
