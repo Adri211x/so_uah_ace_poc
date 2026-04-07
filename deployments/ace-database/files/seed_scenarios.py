@@ -56,8 +56,8 @@ def seed(conn, client) -> None:
     """Seed scenarios and split_assignments from all training files."""
     cur = conn.cursor()
 
-    cur.execute("DELETE FROM split_assignments")
-    cur.execute("DELETE FROM scenarios")
+    cur.execute("DELETE FROM cases.split_assignments")
+    cur.execute("DELETE FROM cases.scenarios")
     logger.info("Cleared existing data")
 
     scenarios_seen = set()
@@ -82,7 +82,7 @@ def seed(conn, client) -> None:
 
                 if ref not in scenarios_seen:
                     cur.execute(
-                        """INSERT INTO scenarios
+                        """INSERT INTO cases.scenarios
                             (scenario_ref, scenario_id, family, root_cause_key,
                              variation_type, source_file, metadata)
                            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
@@ -100,7 +100,7 @@ def seed(conn, client) -> None:
                     scenarios_seen.add(ref)
 
                 cur.execute(
-                    """INSERT INTO split_assignments
+                    """INSERT INTO cases.split_assignments
                         (scenario_ref, split_type, fold_name, split)
                        VALUES (%s, %s, %s, %s)
                        ON CONFLICT (scenario_ref, split_type, fold_name) DO NOTHING""",
