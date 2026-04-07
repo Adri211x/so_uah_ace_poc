@@ -129,7 +129,7 @@ CREATE TABLE contexts.bullets (
     content                 TEXT NOT NULL,
     category                TEXT,
     tool_name               TEXT,
-    embedding               vector(1536),
+    embedding               vector(3072),
     usage_count             INTEGER NOT NULL DEFAULT 0,
     origin_execution_id     UUID REFERENCES runs.executions(id) ON DELETE SET NULL,
     created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),

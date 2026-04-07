@@ -74,3 +74,4 @@ just clean        # Remove cached/generated files
 | [Database](docs/database.md) | Deployment, schema (cases/runs/contexts), connection |
 | [Dataset](docs/dataset.md) | Scenarios, train/test splits, SQL queries, Python examples |
 | [Dataset analysis](data/event_system/dataset.md) | Statistical analysis, composition, splits, and evaluation methodology |
+| [ACE paper](docs/ace-original-paper-2510.04618v3.pdf) | Original research paper (arXiv:2510.04618v3) |

@@ -152,6 +152,6 @@ The evolving playbook: versioned context snapshots with insight bullets and pgve
 | `content` | The insight/strategy text |
 | `category` | Classification of the insight |
 | `tool_name` | Related tool (if applicable) |
-| `embedding` | `vector(1536)` for semantic search |
+| `embedding` | `vector(3072)` for semantic search (matches `text-embedding-3-small`) |
 | `usage_count` | How many times this insight has been used |
 | `origin_execution_id` (FK) | Which run produced this insight |
