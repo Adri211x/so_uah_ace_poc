@@ -200,13 +200,15 @@ The project includes a standalone Helm chart for deploying PostgreSQL with the p
 - PostgreSQL 16 with pgvector 0.8.1 (image: `pgvector/pgvector:0.8.1-pg16`)
 - StatefulSet with 20Gi persistent volume
 - LoadBalancer service (Azure internal) on port 5432
-- Init script that creates the `ace` database and grants privileges to `ace-admin`
+- Init script that creates the `ace` database, `scenarios` and `split_assignments` tables
+- Post-install seed Job that populates the tables from training files stored in S3/MinIO (DVC cache)
 
 **Prerequisites:**
 
 - A Kubernetes cluster with Helm installed
 - The target namespace must exist
-- The `ace-credentials` Secret must be applied before installing the chart
+- The `ace-credentials` Secret (PG_USER, PG_PASSWORD) must be applied before installing
+- The `ace-s3-credentials` Secret (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) must be applied for the seed job
 
 **Deploy:**
 
@@ -214,13 +216,11 @@ The project includes a standalone Helm chart for deploying PostgreSQL with the p
 # 1. Create the namespace
 kubectl create namespace ace
 
-# 2. Edit the secret with your credentials (PG_USER and PG_PASSWORD)
-#    File: deployments/ace-database/secret.yaml (not tracked in git)
-
-# 3. Apply the secret
+# 2. Apply secrets (files not tracked in git)
 kubectl apply -f deployments/ace-database/secret.yaml -n ace
+kubectl apply -f deployments/ace-database/secret-s3.yaml -n ace
 
-# 4. Install the Helm chart
+# 3. Install the Helm chart (seed job runs automatically)
 helm install ace-database deployments/ace-database/ -n ace
 ```
 
@@ -229,6 +229,7 @@ helm install ace-database deployments/ace-database/ -n ace
 ```bash
 kubectl get all -n ace
 kubectl get pvc -n ace
+kubectl logs -n ace job/ace-database-seed-1
 ```
 
 **Connection:**
@@ -253,6 +254,152 @@ helm upgrade ace-database deployments/ace-database/ -n ace
 helm uninstall ace-database -n ace
 # PVC is retained by default, delete manually if needed:
 # kubectl delete pvc data-ace-database-0 -n ace
+```
+
+## Database schema
+
+The `ace` database contains two tables that act as a lightweight index of the scenarios stored in DVC/S3. Full case data (input, expected_output, fixtures, ground truth) lives in the object store.
+
+**`scenarios`** -- Catalog of all 559 scenario variants:
+
+| Column | Description |
+|--------|-------------|
+| `scenario_ref` (PK) | Unique case ID, e.g. `kubernetes-crashloop-KubeDeploymentReplicasMismatch--alert_rephrased-s1200` |
+| `scenario_id` | Base scenario name, e.g. `kubernetes-crashloop` |
+| `family` | Root cause family, e.g. `container_error`, `config_error` |
+| `root_cause_key` | Specific root cause, e.g. `invalid_container_command` |
+| `variation_type` | Variation applied: `alert_rephrased`, `namespace_shifted`, `noise_injected`, or `real` |
+| `source_file` | JSON filename in DVC/S3, e.g. `kubernetes-crashloop--alert_rephrased-s1200.json` |
+| `metadata` | Extra info as JSONB |
+
+**`split_assignments`** -- Train/test splits per mode and fold:
+
+| Column | Description |
+|--------|-------------|
+| `scenario_ref` (FK) | References `scenarios.scenario_ref` |
+| `split_type` | Split mode: `stratified`, `leave_family_out`, `leave_scenario_out`, `leave_variation_out` |
+| `fold_name` | Fold identifier, e.g. `default`, `hold_out_config_error`, `hold_out_kubernetes-crashloop` |
+| `split` | `train` or `test` |
+
+## Working with the dataset locally
+
+The remote database is accessible from your local machine. Use it to query the scenario catalog, get train/test splits, and then fetch full case data from S3 when needed.
+
+**Connect to the database:**
+
+```bash
+psql "postgresql://ace-admin:<password>@db.ace.e2e.so.azure.datadope.co:5432/ace"
+```
+
+**Example: Run a stratified training job**
+
+The stratified split has a single fold (`default`) with an 80/20 train/test ratio:
+
+```sql
+-- Get all training scenarios for the stratified split
+SELECT s.scenario_ref, s.scenario_id, s.family, s.source_file
+FROM scenarios s
+JOIN split_assignments sa ON s.scenario_ref = sa.scenario_ref
+WHERE sa.split_type = 'stratified'
+  AND sa.fold_name = 'default'
+  AND sa.split = 'train';
+```
+
+In Python, the workflow would be:
+
+```python
+import psycopg2
+import boto3
+import json
+
+conn = psycopg2.connect("postgresql://ace-admin:<password>@db.ace.e2e.so.azure.datadope.co:5432/ace")
+cur = conn.cursor()
+
+# 1. Query training set from the catalog
+cur.execute("""
+    SELECT s.scenario_ref, s.source_file
+    FROM scenarios s
+    JOIN split_assignments sa ON s.scenario_ref = sa.scenario_ref
+    WHERE sa.split_type = 'stratified' AND sa.split = 'train'
+""")
+train_cases = cur.fetchall()
+
+# 2. For each case, download the full data from S3/MinIO
+s3 = boto3.client("s3",
+    endpoint_url="https://minio-api.langfuse.e2e.so.azure.datadope.co:443",
+    aws_access_key_id="...", aws_secret_access_key="...")
+
+for ref, source_file in train_cases:
+    # DVC stores datasets under a known prefix
+    obj = s3.get_object(Bucket="dvc-ace", Key=f"data/datasets/{source_file}")
+    case_data = json.loads(obj["Body"].read())
+    # case_data has: input, expected_output, metadata, golden_entities
+```
+
+**Example: Leave-one-family-out cross-validation**
+
+This mode has 11 folds, one per root cause family. Each fold holds out all scenarios of one family as the test set:
+
+```sql
+-- List available folds
+SELECT DISTINCT fold_name, count(*) FILTER (WHERE split = 'train') as train,
+                           count(*) FILTER (WHERE split = 'test') as test
+FROM split_assignments
+WHERE split_type = 'leave_family_out'
+GROUP BY fold_name
+ORDER BY fold_name;
+
+-- Get test set for a specific fold
+SELECT s.scenario_ref, s.family, s.source_file
+FROM scenarios s
+JOIN split_assignments sa ON s.scenario_ref = sa.scenario_ref
+WHERE sa.split_type = 'leave_family_out'
+  AND sa.fold_name = 'hold_out_config_error'
+  AND sa.split = 'test';
+```
+
+**Example: Leave-one-scenario-out (19 folds)**
+
+Each fold holds out all alerts from one base scenario:
+
+```sql
+SELECT s.scenario_ref, s.source_file
+FROM scenarios s
+JOIN split_assignments sa ON s.scenario_ref = sa.scenario_ref
+WHERE sa.split_type = 'leave_scenario_out'
+  AND sa.fold_name = 'hold_out_kubernetes-crashloop'
+  AND sa.split = 'test';
+```
+
+**Example: Leave-one-variation-out (4 folds)**
+
+Each fold holds out one variation type (`alert_rephrased`, `namespace_shifted`, `noise_injected`, `real`):
+
+```sql
+SELECT s.scenario_ref, s.source_file
+FROM scenarios s
+JOIN split_assignments sa ON s.scenario_ref = sa.scenario_ref
+WHERE sa.split_type = 'leave_variation_out'
+  AND sa.fold_name = 'hold_out_noise_injected'
+  AND sa.split = 'test';
+```
+
+**Useful queries:**
+
+```sql
+-- Count scenarios by family
+SELECT family, count(*) FROM scenarios GROUP BY family ORDER BY count DESC;
+
+-- Count scenarios by variation type
+SELECT variation_type, count(*) FROM scenarios GROUP BY variation_type;
+
+-- List all base scenarios
+SELECT DISTINCT scenario_id FROM scenarios ORDER BY scenario_id;
+
+-- Summary of splits per mode
+SELECT split_type, count(DISTINCT fold_name) as folds, count(*) as total_assignments
+FROM split_assignments
+GROUP BY split_type;
 ```
 
 ## Environment variables

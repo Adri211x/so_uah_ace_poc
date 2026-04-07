@@ -1,0 +1,11 @@
+{{- if .Values.seed.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ace-database.fullname" . }}-seed
+  labels:
+    {{- include "ace-database.labels" . | nindent 4 }}
+data:
+  seed_scenarios.py: |
+{{ .Files.Get "files/seed_scenarios.py" | indent 4 }}
+{{- end }}

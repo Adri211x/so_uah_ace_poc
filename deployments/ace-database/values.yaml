@@ -16,7 +16,7 @@ postgres:
   # This Secret must be created BEFORE installing the chart.
   # Required keys:
   #   - PG_USER: PostgreSQL user (e.g., ace-admin)
-  #   - PG_PASSWORD: user password
+  #   - PG_PASSWORD: user password /
   existingSecret: "ace-credentials"
 
 # Service configuration
@@ -82,3 +82,23 @@ tolerations: []
 
 # Affinity rules
 affinity: {}
+
+# Seed job configuration
+# Populates scenarios and split_assignments tables from training files in S3
+seed:
+  enabled: true
+  image:
+    repository: python
+    tag: "3.12-slim"
+  s3:
+    endpoint: "https://minio-api.langfuse.e2e.so.azure.datadope.co:443"
+    bucket: "dvc-ace"
+    existingSecret: "ace-s3-credentials"
+  # DVC cache prefix inside the bucket
+  dvcPrefix: "dvc/files/md5"
+  # Training files: filename -> DVC md5 hash
+  trainingFiles:
+    training_stratified.json: "77ff317f396636f76263054bf8bbbcab"
+    training_leave_family_out.json: "fc3852ff6ce132ef878c0035046c5b75"
+    training_leave_scenario_out.json: "9eac1e6caf34ef20e5114e83c8f2506b"
+    training_leave_variation_out.json: "83c1515db2e994b2a0c485e30a43f4e9"

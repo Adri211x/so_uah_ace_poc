@@ -29,7 +29,7 @@ build/
 *.p12
 secrets/
 .secrets
-deployments/**/secret.yaml
+deployments/**/secret*.yaml
 
 # Databases
 *.db
