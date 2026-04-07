@@ -108,14 +108,47 @@ def seed(conn, client) -> None:
                 )
                 total_assignments += 1
 
+    dev_count = _create_dev_split(cur)
+    total_assignments += dev_count
+
     conn.commit()
     cur.close()
 
     logger.info(
-        "Seeded %d scenarios, %d split assignments",
+        "Seeded %d scenarios, %d split assignments (including %d dev)",
         len(scenarios_seen),
         total_assignments,
+        dev_count,
     )
+
+
+def _create_dev_split(cur) -> int:
+    """Create a 'dev' split with 1 real (non-synthetic) case per base scenario.
+
+    All selected cases are assigned to both train and test so they can be
+    used in any direction during development.
+    """
+    cur.execute("""
+        SELECT DISTINCT ON (scenario_id) scenario_ref, scenario_id
+        FROM cases.scenarios
+        WHERE variation_type = 'real'
+        ORDER BY scenario_id, scenario_ref
+    """)
+    dev_scenarios = cur.fetchall()
+
+    count = 0
+    for ref, _ in dev_scenarios:
+        cur.execute(
+            """INSERT INTO cases.split_assignments
+                (scenario_ref, split_type, fold_name, split)
+               VALUES (%s, 'dev', 'default', 'dev')
+               ON CONFLICT (scenario_ref, split_type, fold_name) DO NOTHING""",
+            (ref,),
+        )
+        count += 1
+
+    logger.info("Created dev split with %d scenarios", len(dev_scenarios))
+    return count
 
 
 def main() -> None:

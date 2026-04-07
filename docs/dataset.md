@@ -30,8 +30,22 @@ The dataset supports 4 train/test split strategies, all pre-computed and stored 
 | `leave_family_out` | 11 | Each fold holds out one root cause family |
 | `leave_scenario_out` | 19 | Each fold holds out one base scenario |
 | `leave_variation_out` | 4 | Each fold holds out one variation type |
+| `dev` | 1 | 19 cases (1 real per base scenario), for local development |
 
 ## Querying scenarios
+
+### Dev split (quick iteration)
+
+The `dev` split contains 1 real (non-synthetic) case per base scenario -- 19 cases total. Use it during development to iterate quickly without running the full dataset:
+
+```sql
+SELECT s.scenario_ref, s.scenario_id, s.family, s.source_file
+FROM cases.scenarios s
+JOIN cases.split_assignments sa ON s.scenario_ref = sa.scenario_ref
+WHERE sa.split_type = 'dev';
+```
+
+When ready to validate properly, switch to `stratified` or one of the cross-validation splits.
 
 ### Stratified split (simple train/test)
 
