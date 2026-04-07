@@ -73,3 +73,4 @@ just clean        # Remove cached/generated files
 | [Development guide](docs/development-guide.md) | Workflow, branching, commits, CI/CD, conventions |
 | [Database](docs/database.md) | Deployment, schema (cases/runs/contexts), connection |
 | [Dataset](docs/dataset.md) | Scenarios, train/test splits, SQL queries, Python examples |
+| [Dataset analysis](data/event_system/dataset.md) | Statistical analysis, composition, splits, and evaluation methodology |
