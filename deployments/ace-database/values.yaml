@@ -23,6 +23,9 @@ postgres:
 service:
   type: LoadBalancer
   port: 5432
+  loadBalancerIP: ""
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
 
 # Data persistence configuration
 persistence:
