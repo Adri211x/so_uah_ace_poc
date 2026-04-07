@@ -125,16 +125,16 @@ def discover_from_db(db_path: str) -> dict[str, Any]:
 
 def run_kubectl(kubeconfig: str, command: str) -> str | None:
     """Execute a kubectl command and return stdout."""
-    full_cmd = f"kubectl --kubeconfig {kubeconfig} {command}"
+    full_cmd = ["kubectl", "--kubeconfig", kubeconfig, *command.split()]
     try:
         result = subprocess.run(
-            full_cmd, shell=True, capture_output=True, text=True, timeout=30
+            full_cmd, capture_output=True, text=True, timeout=30
         )
         return result.stdout if result.returncode == 0 else result.stderr
     except subprocess.TimeoutExpired:
         return None
     except Exception as e:
-        logger.warning(f"kubectl error for '{command}': {e}")
+        logger.warning("kubectl error for '%s': %s", command, e)
         return None
 
 
