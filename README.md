@@ -1,5 +1,7 @@
 # so_ua_ace_poc
 
+EXAMPLE REPOSITORY
+
 ## Prerequisites
 
 Before starting, make sure you have these tools installed:
@@ -9,7 +11,6 @@ Before starting, make sure you have these tools installed:
 | **Python 3.12+** | Runtime | [python.org](https://www.python.org/downloads/) |
 | **uv** | Package manager (replaces pip) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | **just** | Command runner (replaces Makefile) | `cargo install just` or [other methods](https://github.com/casey/just#installation) |
-| **DVC** | Data version control | `uv tool install dvc --with dvc-s3` |
 | **pre-commit** | Git hooks framework | Installed automatically with `just setup` |
 | **Docker** | Containerization (optional) | [docs.docker.com](https://docs.docker.com/get-docker/) |
 
@@ -23,14 +24,11 @@ cd so_ua_ace_poc
 # 2. Run the initial setup (installs deps + configures git hooks)
 just setup
 
-# 3. Pull dataset files from MinIO (requires DVC credentials)
-just dvc-pull
-
-# 4. Start the dev server
+# 3. Start the dev server
 just dev
 ```
 
-Run `just` (without arguments) to see all available commands.
+That's it. Run `just` (without arguments) to see all available commands.
 
 ## Project structure
 
@@ -45,9 +43,6 @@ so_ua_ace_poc/
 |       |-- models/             # Database models (SQLAlchemy)
 |       |-- schemas/            # Request/response schemas (Pydantic)
 |       |-- core/               # Shared config, exceptions, utilities
-|
-|-- data/
-|   |-- event_system/           # Benchmark dataset for agent evaluation (self-contained)
 |
 |-- tests/
 |   |-- unit/                   # Unit tests (fast, no external deps)
@@ -69,6 +64,19 @@ so_ua_ace_poc/
 |-- justfile                    # Project commands (run `just` to see them all)
 |-- Dockerfile                  # Container build definition
 |-- .env.example                # Template for environment variables
+|
+|-- deployments/                # Kubernetes/Helm deployment manifests
+|   |-- ace-database/           # PostgreSQL + pgvector Helm chart
+|       |-- Chart.yaml
+|       |-- values.yaml
+|       |-- secret.yaml         # K8s Secret (not tracked in git)
+|       |-- files/
+|       |   |-- init_databases.sql
+|       |-- templates/
+|           |-- _helpers.tpl
+|           |-- configmap-init-sql.yaml
+|           |-- service.yaml
+|           |-- statefulset.yaml
 ```
 
 ## Architecture
@@ -183,6 +191,70 @@ When you push to GitLab, the pipeline runs:
 4. **Report** -- Security and quality report
 5. **Build** -- Docker image build and release
 
+## Database deployment (ace-database)
+
+The project includes a standalone Helm chart for deploying PostgreSQL with the pgvector extension.
+
+**What it deploys:**
+
+- PostgreSQL 16 with pgvector 0.8.1 (image: `pgvector/pgvector:0.8.1-pg16`)
+- StatefulSet with 20Gi persistent volume
+- LoadBalancer service (Azure internal) on port 5432
+- Init script that creates the `ace` database and grants privileges to `ace-admin`
+
+**Prerequisites:**
+
+- A Kubernetes cluster with Helm installed
+- The target namespace must exist
+- The `ace-credentials` Secret must be applied before installing the chart
+
+**Deploy:**
+
+```bash
+# 1. Create the namespace
+kubectl create namespace ace
+
+# 2. Edit the secret with your credentials (PG_USER and PG_PASSWORD)
+#    File: deployments/ace-database/secret.yaml (not tracked in git)
+
+# 3. Apply the secret
+kubectl apply -f deployments/ace-database/secret.yaml -n ace
+
+# 4. Install the Helm chart
+helm install ace-database deployments/ace-database/ -n ace
+```
+
+**Verify:**
+
+```bash
+kubectl get all -n ace
+kubectl get pvc -n ace
+```
+
+**Connection:**
+
+| Parameter | Value |
+|-----------|-------|
+| Host | `db.ace.e2e.so.azure.datadope.co` |
+| Port | `5432` |
+| Database | `ace` |
+| User | `ace-admin` (from secret) |
+| Password | from secret `ace-credentials` |
+
+**Upgrade after chart changes:**
+
+```bash
+helm upgrade ace-database deployments/ace-database/ -n ace
+```
+
+**Uninstall:**
+
+```bash
+helm uninstall ace-database -n ace
+# PVC is retained by default, delete manually if needed:
+# kubectl delete pvc data-ace-database-0 -n ace
+```
+
 ## Environment variables
 
 Copy the template and fill in your values:
@@ -192,23 +264,6 @@ cp .env.example .env
 ```
 
 Never commit `.env` files. They are in `.gitignore`.
-
-## Data: Event System
-
-The `data/event_system/` directory contains a self-contained benchmark dataset for evaluating AI agents on Kubernetes root cause analysis tasks. It includes 559 labeled samples, a mock MCP server, and its own test suite.
-
-Data files are managed with DVC and stored in MinIO (`s3://dvc-ace`). See [data/event_system/README.md](data/event_system/README.md) for full documentation.
-
-```bash
-# Pull dataset files
-just dvc-pull
-
-# Run event_system tests
-just test-data
-
-# Start mock MCP server for a scenario
-just mock-server crashloop
-```
 
 ## Key conventions
 
