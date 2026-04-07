@@ -1,0 +1,81 @@
+# ace-database - Default values
+# Standalone PostgreSQL + pgvector chart for ACE platform
+
+# Override the full resource name (default: <release>-ace-database)
+fullnameOverride: ace-database
+
+# Docker image configuration
+image:
+  repository: pgvector/pgvector
+  tag: "0.8.1-pg16"
+  pullPolicy: IfNotPresent
+
+# PostgreSQL configuration
+postgres:
+  # Name of the existing Secret containing PostgreSQL credentials.
+  # This Secret must be created BEFORE installing the chart.
+  # Required keys:
+  #   - PG_USER: PostgreSQL user (e.g., ace-admin)
+  #   - PG_PASSWORD: user password
+  existingSecret: "ace-credentials"
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5432
+
+# Data persistence configuration
+persistence:
+  enabled: true
+  size: 20Gi
+  # StorageClass to use (null = cluster default)
+  storageClass: null
+  # Use an existing PVC (leave empty to create a new one)
+  # existingClaim: ""
+
+# Number of StatefulSet replicas
+replicaCount: 1
+
+# SQL initialization configuration
+# Creates the ace database.
+# Tables and extensions are managed by Alembic migrations.
+initSql:
+  enabled: true
+
+# Pod resources (uncomment to set limits)
+# resources:
+#   limits:
+#     cpu: 1000m
+#     memory: 2Gi
+#   requests:
+#     cpu: 500m
+#     memory: 1Gi
+
+# Pod annotations
+podAnnotations: {}
+
+# Additional pod labels
+podLabels: {}
+
+# Pod security context
+# podSecurityContext:
+#   fsGroup: 999
+#   runAsUser: 999
+#   runAsNonRoot: true
+
+# Container security context
+# securityContext:
+#   allowPrivilegeEscalation: false
+#   capabilities:
+#     drop:
+#     - ALL
+#   readOnlyRootFilesystem: false
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}
