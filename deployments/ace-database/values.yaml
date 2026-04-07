@@ -21,7 +21,7 @@ postgres:
 
 # Service configuration
 service:
-  type: ClusterIP
+  type: LoadBalancer
   port: 5432
 
 # Data persistence configuration
