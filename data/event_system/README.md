@@ -303,6 +303,7 @@ uv run pytest tests/ -v
 
 ## Documentation
 
+- **[docs/onboarding.md](../../docs/onboarding.md)** — Onboarding guide: structured introduction to the project, dataset, mock MCP, splits, and how to build an agent.
 - **[dataset.md](dataset.md)** — Full statistical analysis of the dataset, split strategies, golden entities, and methodological considerations. Includes 11 figures.
 
 ## Requirements
