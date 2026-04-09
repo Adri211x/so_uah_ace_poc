@@ -20,6 +20,7 @@ dependencies = [
     "pyyaml>=6.0",
     "docker>=7.1.0",
     "matplotlib>=3.10.8",
+    "psycopg2-binary>=2.9.0",
 ]
 
 [project.urls]
@@ -33,6 +34,7 @@ event-enrich = "event_system.enrich_cache:main"
 event-variations = "event_system.generate_variations:main"
 event-splits = "event_system.build_training_split:main"
 event-golden = "event_system.build_golden_entities:main"
+event-runner = "event_system.cli_runner:main"
 
 [project.optional-dependencies]
 dev = ["pytest"]

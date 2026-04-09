@@ -118,6 +118,26 @@ test-data:
 mock-server scenario:
     cd data/event_system && uv sync && uv run event-mock --cache cache/kubernetes-{{ scenario }}.json
 
+# List available splits and folds from the ACE database or local files
+cases-list:
+    cd data/event_system && uv run event-runner list-splits
+
+# List folds for a split type (usage: just cases-folds leave_family_out)
+cases-folds split_type:
+    cd data/event_system && uv run event-runner list-folds {{ split_type }}
+
+# Show summary for a split/fold (usage: just cases-summary stratified default)
+cases-summary split fold="default":
+    cd data/event_system && uv run event-runner summary {{ split }} {{ fold }}
+
+# Export cases to JSON (usage: just cases-export stratified default test)
+cases-export split fold="default" partition="test":
+    cd data/event_system && uv run event-runner export --split {{ split }} --fold {{ fold }} --partition {{ partition }}
+
+# Run mock interactively through all cases in a split (usage: just cases-serve dev)
+cases-serve split="dev" fold="default" partition="dev":
+    cd data/event_system && uv run event-runner serve --split {{ split }} --fold {{ fold }} --partition {{ partition }}
+
 # --------------------------------------------------------------------------
 # Docker
 # --------------------------------------------------------------------------
