@@ -5,6 +5,9 @@ description = ""
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.135.2",
+    "langfuse>=4.5.1",
+    "pydantic-ai[mcp]>=1.87.0",
+    "pydantic-settings>=2.14.0",
     "uvicorn[standard]>=0.42.0",
 ]
 
