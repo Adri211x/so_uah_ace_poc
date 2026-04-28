@@ -8,6 +8,7 @@ dependencies = [
     "langfuse>=4.5.1",
     "pydantic-ai[mcp]>=1.87.0",
     "pydantic-settings>=2.14.0",
+    "pyyaml>=6.0.3",
     "uvicorn[standard]>=0.42.0",
 ]
 
