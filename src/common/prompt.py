@@ -48,13 +48,9 @@ def _load_prompts(path: Path = _PROMPTS_FILE) -> dict[str, Any]:
 def _get_system_prompt(data: dict[str, Any]) -> str:
     raw = data.get(_SYSTEM_PROMPT_KEY)
     if raw is None:
-        raise PromptDefinitionError(
-            f"Missing required key {_SYSTEM_PROMPT_KEY!r} in prompts YAML"
-        )
+        raise PromptDefinitionError(f"Missing required key {_SYSTEM_PROMPT_KEY!r} in prompts YAML")
     if not isinstance(raw, str):
-        raise PromptDefinitionError(
-            f"Key {_SYSTEM_PROMPT_KEY!r} must be a string, got {type(raw)}"
-        )
+        raise PromptDefinitionError(f"Key {_SYSTEM_PROMPT_KEY!r} must be a string, got {type(raw)}")
     text = raw.strip()
     if not text:
         raise PromptDefinitionError(f"Key {_SYSTEM_PROMPT_KEY!r} must not be empty")

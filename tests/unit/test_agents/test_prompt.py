@@ -9,6 +9,4 @@ def test_system_prompt_is_shared_and_mentions_rca_scope() -> None:
     assert "kubernetes" in lower
     assert "evidence" in lower
     # Explicit RCA wording or established root-cause / causal-analysis framing
-    assert "root cause analysis" in lower or (
-        "root cause" in lower and "causal analysis" in lower
-    )
+    assert "root cause analysis" in lower or ("root cause" in lower and "causal analysis" in lower)
