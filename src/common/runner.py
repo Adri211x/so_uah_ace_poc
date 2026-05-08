@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from src.common.schemas import AgentInput, AgentResult
+from src.common.scoring import score_golden_entities
 
 
 class SyncAgent(Protocol):
@@ -119,12 +120,18 @@ def run_agent_on_training_split(
         # The LLM currently receives alert text only; scenario is validated for future use.
         agent_response = agent.run_sync(agent_input.alert_text)
 
+        rca_output = _extract_agent_output(agent_response)
+        golden_entities = sample.get("golden_entities", [])
+        scoring = score_golden_entities(rca_output, golden_entities)
+
         results.append(
             AgentResult(
                 sample_id=sample["id"],
-                rca_output=_extract_agent_output(agent_response),
+                rca_output=rca_output,
                 expected_output=sample.get("expected_output", ""),
-                golden_entities=sample.get("golden_entities", []),
+                golden_entities=golden_entities,
+                score=scoring["score"],
+                matched_entities=scoring["matched"],
             )
         )
 

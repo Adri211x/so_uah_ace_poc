@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-ai[mcp]>=1.87.0",
     "pydantic-settings>=2.14.0",
     "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.5",
     "uvicorn[standard]>=0.42.0",
 ]
 

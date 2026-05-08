@@ -15,6 +15,16 @@ class FakeAgent:
         return f"RCA for: {user_prompt}"
 
 
+class ScriptedAgent:
+    """Stub agent that returns a canned response keyed by the alert text."""
+
+    def __init__(self, responses: dict[str, str]) -> None:
+        self._responses = responses
+
+    def run_sync(self, user_prompt: str) -> str:
+        return self._responses[user_prompt]
+
+
 def _write_json(path: Path, payload: object) -> None:
     """Write ``payload`` as UTF-8 JSON, creating parent directories if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,3 +81,68 @@ def test_runner_processes_only_test_split_rows(tmp_path: Path) -> None:
     assert results[0].sample_id == "sample-test"
     assert "ALERT test" in results[0].rca_output
     assert output_file.exists()
+
+
+def test_runner_writes_score_and_matched_entities_for_three_cases(tmp_path: Path) -> None:
+    """E2E check: runner must score every test row and persist numeric scores in JSON."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    split_rows = [
+        {"id": f"sample-{i}", "file": f"case_{i}.json", "split": "test"} for i in range(1, 4)
+    ]
+    _write_json(training_file, split_rows)
+
+    samples = {
+        1: {
+            "id": "sample-1",
+            "input": {"alert_text": "ALERT 1"},
+            "expected_output": "Root cause one.",
+            "golden_entities": ["nginx-deploy", "unterminated quoted string", "exit code 1"],
+        },
+        2: {
+            "id": "sample-2",
+            "input": {"alert_text": "ALERT 2"},
+            "expected_output": "Root cause two.",
+            "golden_entities": ["postgres-db", "connection refused", "port 5432"],
+        },
+        3: {
+            "id": "sample-3",
+            "input": {"alert_text": "ALERT 3"},
+            "expected_output": "Root cause three.",
+            "golden_entities": ["redis-cache", "OOMKilled", "memory limit"],
+        },
+    }
+    for index, sample in samples.items():
+        _write_json(dataset_dir / f"case_{index}.json", sample)
+
+    responses = {
+        "ALERT 1": (
+            "The pod nginx-deploy crashed with exit code 1 because of an "
+            "unterminated quoted string in the entrypoint."
+        ),
+        "ALERT 2": "postgres-db rejected connections (connection refused) on port 5432.",
+        "ALERT 3": "redis-cache went OOMKilled after exceeding the configured limit.",
+    }
+    agent = ScriptedAgent(responses)
+
+    results = run_agent_on_training_split(
+        agent=agent,
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+    )
+
+    assert len(results) == 3
+    assert all(isinstance(result.score, int) for result in results)
+    assert results[0].score == 3
+    assert results[1].score == 3
+    assert results[2].score == 2
+    assert "memory limit" not in (results[2].matched_entities or [])
+
+    persisted = json.loads(output_file.read_text(encoding="utf-8"))
+    assert [entry["score"] for entry in persisted] == [3, 3, 2]
+    for entry in persisted:
+        assert isinstance(entry["score"], int)
+        assert isinstance(entry["matched_entities"], list)
