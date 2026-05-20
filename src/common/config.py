@@ -16,6 +16,9 @@ class AgentSettings(BaseSettings):
 
     Attributes:
         llm_model_name: OpenAI-compatible model name served by the LiteLLM proxy.
+        judge_model_name: Model name used by the LLM-as-a-judge evaluator. Defaults
+            to the same value as ``llm_model_name``; override to use a stronger
+            model only for evaluation.
         litellm_api_key: API key for the corporate LiteLLM endpoint (required at runtime via env).
         litellm_base_url: OpenAI-compatible base URL, including ``/v1`` if required.
         langfuse_public_key: Langfuse public key; tracing is skipped if unset.
@@ -31,6 +34,7 @@ class AgentSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     llm_model_name: str = "gpt-4o-mini"
+    judge_model_name: str = "gpt-4o-mini"
     # Default satisfies static analysis; env ``LITELLM_API_KEY`` overrides at load time.
     # ``_validate_litellm_api_key`` enforces a non-empty value after env/.env are applied.
     litellm_api_key: str = Field(

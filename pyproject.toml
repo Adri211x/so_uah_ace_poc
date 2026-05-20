@@ -9,6 +9,7 @@ dependencies = [
     "pydantic-ai[mcp]>=1.87.0",
     "pydantic-settings>=2.14.0",
     "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14.5",
     "uvicorn[standard]>=0.42.0",
 ]
 
@@ -49,7 +50,10 @@ known-first-party = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not integration'"
+markers = [
+    "integration: end-to-end tests that hit external services (LLM, DB, MCP). Skipped by default; opt in with `-m integration`.",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/app"]

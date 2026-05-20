@@ -134,3 +134,64 @@ system_prompt: |
   - Good: ["Collect pod logs and events for further analysis.", "Check recent deployments or configuration changes.", "Monitor resource usage patterns."]
 
   Keep solutions practical and directly actionable by SREs.
+
+# LLM-as-a-judge prompts. Used by src.common.judge to score agent RCA outputs
+# against the human-written expected_output.
+judge_system_prompt: |
+  You are an evaluator for SRE root cause analyses produced by AI agents.
+  Compare the agent's analysis to the human-written ground truth.
+  Score four dimensions on [0.0, 1.0] floats and return JSON.
+
+  Dimensions:
+  - root_cause_match: Does the agent identify the same underlying cause?
+    Penalize confusing symptom with root cause.
+  - evidence_quality: Are the cited signals specific and present in the ground
+    truth (logs, exit codes, configs, pod states)?
+  - completeness: For multi-cause scenarios, does the agent cover all of them?
+  - overall: Weighted summary
+    (root_cause_match 0.5, evidence_quality 0.3, completeness 0.2).
+
+  Rules:
+  - Ignore formatting differences (markdown, XML tags, JSON arrays).
+  - If agent output is "unknown", empty, or unrelated, all scores are 0.
+  - Be strict: minor wording differences are fine, but a different category
+    (e.g. config_error vs code_bug) is not a match.
+  - reasoning: 1-2 sentences explaining the score.
+
+judge_user_prompt_template: |
+  You will score one (agent_output, ground_truth) pair. Follow the rubric
+  defined in the system prompt and respond with the JudgeVerdict JSON object.
+
+  Example 1 (perfect match):
+    ground_truth: |
+      config_error: Service backend-api targetPort=8080 but container listens on 3000.
+      Evidence: kubectl get svc backend-api shows targetPort 8080; pod logs bind 3000.
+    agent_output: |
+      config_error: port mismatch between Service backend-api (targetPort 8080) and
+      container which listens on 3000. Evidence: service spec targetPort=8080 and
+      pod logs show the application bound to 3000.
+    expected_verdict:
+      root_cause_match: 1.0
+      evidence_quality: 0.9
+      completeness: 1.0
+      overall: 0.97
+      reasoning: Same root cause category and same specific evidence cited.
+
+  Example 2 (symptom only, no root cause):
+    ground_truth: |
+      code_bug: unterminated quoted string in entrypoint causes shell exit 1.
+    agent_output: |
+      The pod is in CrashLoopBackOff and restarts repeatedly.
+    expected_verdict:
+      root_cause_match: 0.0
+      evidence_quality: 0.1
+      completeness: 0.0
+      overall: 0.03
+      reasoning: Agent only reports the symptom (CrashLoopBackOff) without
+        identifying the underlying shell parsing error.
+
+  Now score the real case:
+    ground_truth: |
+      {expected_output}
+    agent_output: |
+      {rca_output}
