@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
+from src.common.judge import JudgeVerdict
 from src.common.runner import run_agent_on_training_split
 
 
@@ -75,11 +77,13 @@ def test_runner_processes_only_test_split_rows(tmp_path: Path) -> None:
         training_split_path=training_file,
         output_path=output_file,
         dataset_dir=dataset_dir,
+        judge_enabled=False,
     )
 
     assert len(results) == 1
     assert results[0].sample_id == "sample-test"
     assert "ALERT test" in results[0].rca_output
+    assert results[0].judge_verdict is None
     assert output_file.exists()
 
 
@@ -132,6 +136,7 @@ def test_runner_writes_score_and_matched_entities_for_three_cases(tmp_path: Path
         training_split_path=training_file,
         output_path=output_file,
         dataset_dir=dataset_dir,
+        judge_enabled=False,
     )
 
     assert len(results) == 3
@@ -146,3 +151,84 @@ def test_runner_writes_score_and_matched_entities_for_three_cases(tmp_path: Path
     for entry in persisted:
         assert isinstance(entry["score"], int)
         assert isinstance(entry["matched_entities"], list)
+        assert entry["judge_verdict"] is None
+
+
+def test_runner_attaches_judge_verdict_when_enabled(tmp_path: Path) -> None:
+    """With the judge on, every result must carry the JudgeVerdict produced by the patched judge."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [{"id": "sample-test", "file": "test_case.json", "split": "test"}],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "config_error: targetPort mismatch.",
+            "golden_entities": ["config_error"],
+        },
+    )
+
+    canned = JudgeVerdict(
+        root_cause_match=0.8,
+        evidence_quality=0.7,
+        completeness=0.9,
+        overall=0.8,
+        reasoning="ok",
+        judge_model="gpt-4o-mini",
+    )
+
+    with patch("src.common.runner.judge_rca", return_value=canned) as mocked_judge:
+        results = run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=True,
+        )
+
+    mocked_judge.assert_called_once()
+    assert results[0].judge_verdict == canned
+
+    persisted = json.loads(output_file.read_text(encoding="utf-8"))
+    assert persisted[0]["judge_verdict"]["overall"] == 0.8
+    assert persisted[0]["judge_verdict"]["judge_model"] == "gpt-4o-mini"
+
+
+def test_runner_keeps_running_when_judge_raises(tmp_path: Path) -> None:
+    """A failing judge must demote ``judge_verdict`` to ``None`` without aborting the run."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [{"id": "sample-test", "file": "test_case.json", "split": "test"}],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "ground truth",
+            "golden_entities": [],
+        },
+    )
+
+    with patch("src.common.runner.judge_rca", side_effect=RuntimeError("LiteLLM is down")):
+        results = run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=True,
+        )
+
+    assert len(results) == 1
+    assert results[0].judge_verdict is None
+    assert output_file.exists()

@@ -6,6 +6,8 @@
 
 from pydantic import BaseModel, Field
 
+from src.common.judge import JudgeVerdict
+
 
 class AgentInput(BaseModel):
     """Structured input for root-cause analysis.
@@ -32,6 +34,9 @@ class AgentResult(BaseModel):
             scoring stage). ``None`` while the result has not been scored yet.
         matched_entities: Subset of ``golden_entities`` considered present in
             the RCA output. ``None`` while the result has not been scored yet.
+        judge_verdict: Optional LLM-as-a-judge result comparing ``rca_output``
+            to ``expected_output``. ``None`` when the judge was disabled
+            (``--no-judge``) or when it raised an error during the run.
     """
 
     rca_output: str = Field(..., min_length=1)
@@ -40,3 +45,4 @@ class AgentResult(BaseModel):
     golden_entities: list[str] = Field(default_factory=list)
     score: int | None = None
     matched_entities: list[str] | None = None
+    judge_verdict: JudgeVerdict | None = None

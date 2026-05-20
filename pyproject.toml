@@ -50,7 +50,10 @@ known-first-party = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not integration'"
+markers = [
+    "integration: end-to-end tests that hit external services (LLM, DB, MCP). Skipped by default; opt in with `-m integration`.",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/app"]

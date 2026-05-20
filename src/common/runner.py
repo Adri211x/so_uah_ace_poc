@@ -4,17 +4,28 @@ Expects a split file such as ``training_stratified.json`` (list of rows with
 ``split``, ``file``, etc.) and a parallel ``data/datasets/*.json`` tree with
 full samples. The mock MCP server for each scenario must already be running
 when you execute real agents; unit tests use a stub ``SyncAgent`` instead.
+
+The runner produces one ``AgentResult`` per evaluated sample. When the
+LLM-as-a-judge is enabled (default; opt-out via ``--no-judge``), the
+``judge_verdict`` field is populated with ``[0.0, 1.0]`` qualitative scores
+that complement the keyword-based ``score``. Judge failures are logged and
+demoted to ``judge_verdict=None`` so an evaluation never aborts because of
+evaluator infrastructure issues.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.common.judge import JudgeVerdict, judge_rca
 from src.common.schemas import AgentInput, AgentResult
 from src.common.scoring import score_golden_entities
+
+logger = logging.getLogger(__name__)
 
 
 class SyncAgent(Protocol):
@@ -62,11 +73,50 @@ def _extract_agent_output(agent_response: Any) -> str:
     return str(output).strip()
 
 
+def _maybe_judge(
+    rca_output: str,
+    expected_output: str,
+    sample_id: str,
+    *,
+    enabled: bool,
+) -> JudgeVerdict | None:
+    """Run the LLM judge for one sample, swallowing infra errors.
+
+    The ticket explicitly forbids the judge from aborting a run, so any
+    exception (timeouts, validation errors, network problems) is caught and
+    logged, and the caller stores ``None``.
+
+    Args:
+        rca_output: Agent-produced RCA text.
+        expected_output: Ground-truth RCA from the dataset.
+        sample_id: Identifier used only for log context.
+        enabled: When ``False`` (``--no-judge``) the judge is skipped entirely.
+
+    Returns:
+        ``JudgeVerdict`` on success, ``None`` when disabled or on failure.
+    """
+    if not enabled:
+        return None
+
+    try:
+        return judge_rca(rca_output=rca_output, expected_output=expected_output)
+    except Exception:
+        # Broad except is intentional: the judge must never abort the run.
+        logger.warning(
+            "LLM judge failed for sample %s; storing judge_verdict=None.",
+            sample_id,
+            exc_info=True,
+        )
+        return None
+
+
 def run_agent_on_training_split(
     agent: SyncAgent,
     training_split_path: Path,
     output_path: Path,
     dataset_dir: Path | None = None,
+    *,
+    judge_enabled: bool = True,
 ) -> list[AgentResult]:
     """Execute an agent over **test** rows in a training split file.
 
@@ -80,6 +130,9 @@ def run_agent_on_training_split(
         output_path: JSON file to write (list of ``AgentResult`` dicts).
         dataset_dir: Directory containing dataset JSON files; if omitted,
             defaults to ``<parent of training_split_path>/data/datasets``.
+        judge_enabled: When ``True`` (default) each evaluated sample is also
+            scored by the LLM-as-a-judge. Pass ``False`` from the CLI via
+            ``--no-judge`` to disable for fast or offline runs.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
@@ -121,17 +174,26 @@ def run_agent_on_training_split(
         agent_response = agent.run_sync(agent_input.alert_text)
 
         rca_output = _extract_agent_output(agent_response)
+        expected_output = sample.get("expected_output", "")
         golden_entities = sample.get("golden_entities", [])
         scoring = score_golden_entities(rca_output, golden_entities)
+
+        judge_verdict = _maybe_judge(
+            rca_output=rca_output,
+            expected_output=expected_output,
+            sample_id=str(sample.get("id", "")),
+            enabled=judge_enabled and bool(expected_output),
+        )
 
         results.append(
             AgentResult(
                 sample_id=sample["id"],
                 rca_output=rca_output,
-                expected_output=sample.get("expected_output", ""),
+                expected_output=expected_output,
                 golden_entities=golden_entities,
                 score=scoring["score"],
                 matched_entities=scoring["matched"],
+                judge_verdict=judge_verdict,
             )
         )
 
@@ -183,6 +245,13 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional path to dataset JSON files (default: <training parent>/data/datasets).",
     )
+    parser.add_argument(
+        "--no-judge",
+        dest="judge_enabled",
+        action="store_false",
+        help="Disable the LLM-as-a-judge evaluator (enabled by default).",
+    )
+    parser.set_defaults(judge_enabled=True)
     return parser.parse_args()
 
 
@@ -195,6 +264,7 @@ def main() -> None:
         training_split_path=Path(args.training_file),
         output_path=Path(args.output_file),
         dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
+        judge_enabled=args.judge_enabled,
     )
 
 
