@@ -97,3 +97,5 @@ site/
 # Temporary files
 *.tmp
 scratch/
+tmp/
+config.local

@@ -25,6 +25,7 @@ site/
 *.p12
 secrets/
 .secrets
+*.config.local
 
 # Temporary analysis or development files
 *.tmp

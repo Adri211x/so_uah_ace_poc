@@ -136,6 +136,55 @@ def test_runner_writes_score_and_matched_entities_for_three_cases(tmp_path: Path
     assert results[2].score == 2
 
 
+def test_runner_resolves_sample_from_list_dataset(tmp_path: Path) -> None:
+    """Real datasets are lists of samples; runner must pick the one referenced by scenario_ref."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "scenario_ref": "kubernetes-data-pipeline-KubePodCrashLooping",
+                "scenario_id": "kubernetes-data-pipeline",
+                "file": "kubernetes-data-pipeline.json",
+                "split": "test",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "kubernetes-data-pipeline.json",
+        [
+            {
+                "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch",
+                "input": {"alert_text": "ALERT replicas"},
+                "expected_output": "wrong sample",
+                "golden_entities": ["should not match"],
+            },
+            {
+                "id": "kubernetes-data-pipeline-KubePodCrashLooping",
+                "input": {"alert_text": "ALERT crash"},
+                "expected_output": "right sample",
+                "golden_entities": ["broker-service"],
+            },
+        ],
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "kubernetes-data-pipeline-KubePodCrashLooping"
+    assert results[0].expected_output == "right sample"
+    assert "ALERT crash" in results[0].rca_output
+
+
 def test_runner_attaches_judge_verdict_when_enabled(tmp_path: Path) -> None:
     dataset_dir = tmp_path / "data" / "datasets"
     training_file = tmp_path / "training_stratified.json"

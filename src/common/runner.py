@@ -73,6 +73,46 @@ def _extract_agent_output(agent_response: Any) -> str:
     return str(output).strip()
 
 
+def _resolve_sample(loaded: Any, row: dict[str, Any], dataset_file: str) -> dict[str, Any]:
+    """Return the single sample dict referenced by a split row.
+
+    The dataset files produced by ``event-runner`` are **lists** of samples and
+    each split row points to one of them via ``scenario_ref`` (or ``id``).
+    Earlier fixtures used a single-sample-per-file layout (a plain dict), so
+    this helper accepts both shapes for backward compatibility.
+
+    Args:
+        loaded: JSON payload already parsed from disk.
+        row: Split row, used to find the right sample inside a list payload.
+        dataset_file: File name, included in error messages for context.
+
+    Returns:
+        Sample mapping with ``id``, ``input``, ``expected_output``, ``golden_entities``.
+
+    Raises:
+        ValueError: If the payload type is unsupported or the referenced
+            sample cannot be located inside a list payload.
+    """
+    if isinstance(loaded, dict):
+        return loaded
+
+    if not isinstance(loaded, list):
+        raise ValueError(f"Dataset file {dataset_file!r} must contain a dict or a list of samples.")
+
+    sample_id = row.get("scenario_ref") or row.get("id")
+    if not sample_id:
+        raise ValueError(
+            f"Dataset file {dataset_file!r} is a list but split row has no "
+            "'scenario_ref' or 'id' to look up the sample."
+        )
+
+    for candidate in loaded:
+        if isinstance(candidate, dict) and candidate.get("id") == sample_id:
+            return candidate
+
+    raise ValueError(f"Sample id={sample_id!r} not found inside dataset file {dataset_file!r}.")
+
+
 def _maybe_judge(
     rca_output: str,
     expected_output: str,
@@ -168,13 +208,16 @@ def run_agent_on_training_split(
             raise ValueError("Each split row must include a 'file' field.")
 
         sample_path = resolved_dataset_dir / dataset_file
-        sample = _load_json_file(sample_path)
+        sample = _resolve_sample(_load_json_file(sample_path), row, dataset_file)
 
         alert_text = sample.get("input", {}).get("alert_text")
         if not alert_text:
             raise ValueError(f"Sample {sample.get('id')} does not contain input.alert_text.")
 
-        agent_input = AgentInput(alert_text=alert_text, scenario=row.get("base_scenario"))
+        agent_input = AgentInput(
+            alert_text=alert_text,
+            scenario=row.get("base_scenario") or row.get("scenario_id"),
+        )
         agent_response = agent.run_sync(agent_input.alert_text)
 
         rca_output = _extract_agent_output(agent_response)
