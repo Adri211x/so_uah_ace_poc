@@ -97,3 +97,4 @@ site/
 # Temporary files
 *.tmp
 scratch/
+tmp/
