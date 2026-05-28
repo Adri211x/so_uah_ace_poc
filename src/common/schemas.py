@@ -6,6 +6,7 @@
 
 from pydantic import BaseModel, Field
 
+from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
 
 
@@ -37,6 +38,10 @@ class AgentResult(BaseModel):
         judge_verdict: Optional LLM-as-a-judge result comparing ``rca_output``
             to ``expected_output``. ``None`` when the judge was disabled
             (``--no-judge``) or when it raised an error during the run.
+        cosine_similarity: Optional embedding-based cosine similarity between
+            ``rca_output`` / ``expected_output`` and between each golden entity
+            and ``rca_output``. ``None`` when the cosine evaluator was disabled
+            (``--no-cosine``) or when it raised an error during the run.
     """
 
     rca_output: str = Field(..., min_length=1)
@@ -46,3 +51,4 @@ class AgentResult(BaseModel):
     score: int | None = None
     matched_entities: list[str] | None = None
     judge_verdict: JudgeVerdict | None = None
+    cosine_similarity: CosineSimilarityResult | None = None

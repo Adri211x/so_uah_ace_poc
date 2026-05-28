@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
 from src.common.runner import run_agent_on_training_split
 
@@ -78,12 +79,14 @@ def test_runner_processes_only_test_split_rows(tmp_path: Path) -> None:
         output_path=output_file,
         dataset_dir=dataset_dir,
         judge_enabled=False,
+        cosine_enabled=False,
     )
 
     assert len(results) == 1
     assert results[0].sample_id == "sample-test"
     assert "ALERT test" in results[0].rca_output
     assert results[0].judge_verdict is None
+    assert results[0].cosine_similarity is None
     assert output_file.exists()
 
 
@@ -137,6 +140,7 @@ def test_runner_writes_score_and_matched_entities_for_three_cases(tmp_path: Path
         output_path=output_file,
         dataset_dir=dataset_dir,
         judge_enabled=False,
+        cosine_enabled=False,
     )
 
     assert len(results) == 3
@@ -195,6 +199,7 @@ def test_runner_resolves_sample_from_list_dataset(tmp_path: Path) -> None:
         output_path=output_file,
         dataset_dir=dataset_dir,
         judge_enabled=False,
+        cosine_enabled=False,
     )
 
     assert len(results) == 1
@@ -239,6 +244,7 @@ def test_runner_attaches_judge_verdict_when_enabled(tmp_path: Path) -> None:
             output_path=output_file,
             dataset_dir=dataset_dir,
             judge_enabled=True,
+            cosine_enabled=False,
         )
 
     mocked_judge.assert_called_once()
@@ -276,8 +282,93 @@ def test_runner_keeps_running_when_judge_raises(tmp_path: Path) -> None:
             output_path=output_file,
             dataset_dir=dataset_dir,
             judge_enabled=True,
+            cosine_enabled=False,
         )
 
     assert len(results) == 1
     assert results[0].judge_verdict is None
+    assert output_file.exists()
+
+
+def test_runner_attaches_cosine_similarity_when_enabled(tmp_path: Path) -> None:
+    """With cosine enabled, every result must carry the structured similarity payload."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [{"id": "sample-test", "file": "test_case.json", "split": "test"}],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "broker_queue_full",
+            "golden_entities": ["broker", "queue"],
+        },
+    )
+
+    canned = CosineSimilarityResult(
+        rca_similarity=0.81,
+        golden_entity_similarities={"broker": 0.7, "queue": 0.6},
+        golden_entities_avg=0.65,
+        golden_entities_max=0.7,
+    )
+
+    with patch("src.common.runner.compute_cosine_scores", return_value=canned) as mocked:
+        results = run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=True,
+        )
+
+    mocked.assert_called_once()
+    assert results[0].cosine_similarity == canned
+
+    persisted = json.loads(output_file.read_text(encoding="utf-8"))
+    assert persisted[0]["cosine_similarity"]["rca_similarity"] == 0.81
+    assert persisted[0]["cosine_similarity"]["golden_entities_avg"] == 0.65
+    assert "embedding_model" not in persisted[0]["cosine_similarity"]
+
+
+def test_runner_keeps_running_when_cosine_raises(tmp_path: Path) -> None:
+    """A failing cosine scorer must demote ``cosine_similarity`` to ``None``."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [{"id": "sample-test", "file": "test_case.json", "split": "test"}],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "ground truth",
+            "golden_entities": [],
+        },
+    )
+
+    with patch(
+        "src.common.runner.compute_cosine_scores",
+        side_effect=RuntimeError("encoder unavailable"),
+    ):
+        results = run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=True,
+        )
+
+    assert len(results) == 1
+    assert results[0].cosine_similarity is None
     assert output_file.exists()

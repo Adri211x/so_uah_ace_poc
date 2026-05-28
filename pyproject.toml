@@ -10,6 +10,7 @@ dependencies = [
     "pydantic-settings>=2.14.0",
     "pyyaml>=6.0.3",
     "rapidfuzz>=3.14.5",
+    "sentence-transformers>=5.5.1",
     "uvicorn[standard]>=0.42.0",
 ]
 

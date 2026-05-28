@@ -21,6 +21,7 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol
 
+from src.common.cosine_similarity import CosineSimilarityResult, compute_cosine_scores
 from src.common.judge import JudgeVerdict, judge_rca
 from src.common.schemas import AgentInput, AgentResult
 from src.common.scoring import score_golden_entities
@@ -150,6 +151,50 @@ def _maybe_judge(
         return None
 
 
+def _maybe_cosine(
+    rca_output: str,
+    expected_output: str,
+    golden_entities: list[str],
+    sample_id: str,
+    *,
+    enabled: bool,
+) -> CosineSimilarityResult | None:
+    """Compute the embedding-based cosine similarity for one sample.
+
+    Behaves like ``_maybe_judge``: any exception (model download problems,
+    encoder failures) is logged and demoted to ``None`` so the run continues.
+    The expensive sentence-transformer load happens lazily inside
+    ``compute_cosine_scores``; the cached encoder is reused across samples.
+
+    Args:
+        rca_output: Agent-produced RCA text.
+        expected_output: Ground-truth RCA from the dataset.
+        golden_entities: Reference entities scored against ``rca_output``.
+        sample_id: Identifier used only for log context.
+        enabled: When ``False`` (``--no-cosine``) the scorer is skipped.
+
+    Returns:
+        ``CosineSimilarityResult`` on success, ``None`` when disabled or on failure.
+    """
+    if not enabled:
+        return None
+
+    try:
+        return compute_cosine_scores(
+            rca_output=rca_output,
+            expected_output=expected_output,
+            golden_entities=golden_entities,
+        )
+    except Exception:
+        # Broad except is intentional: cosine scoring must never abort the run.
+        logger.warning(
+            "Cosine scorer failed for sample %s; storing cosine_similarity=None.",
+            sample_id,
+            exc_info=True,
+        )
+        return None
+
+
 def run_agent_on_training_split(
     agent: SyncAgent,
     training_split_path: Path,
@@ -157,6 +202,7 @@ def run_agent_on_training_split(
     dataset_dir: Path | None = None,
     *,
     judge_enabled: bool = True,
+    cosine_enabled: bool = True,
 ) -> list[AgentResult]:
     """Execute an agent over **test** rows in a training split file.
 
@@ -173,6 +219,10 @@ def run_agent_on_training_split(
         judge_enabled: When ``True`` (default) each evaluated sample is also
             scored by the LLM-as-a-judge. Pass ``False`` from the CLI via
             ``--no-judge`` to disable for fast or offline runs.
+        cosine_enabled: When ``True`` (default) each evaluated sample is also
+            scored with embedding-based cosine similarity (RCA vs expected
+            output and per-golden-entity vs RCA). Pass ``False`` via
+            ``--no-cosine`` to skip the sentence-transformer load.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
@@ -227,6 +277,14 @@ def run_agent_on_training_split(
             enabled=judge_enabled and bool(expected_output),
         )
 
+        cosine_similarity = _maybe_cosine(
+            rca_output=rca_output,
+            expected_output=expected_output,
+            golden_entities=golden_entities,
+            sample_id=str(sample.get("id", "")),
+            enabled=cosine_enabled and bool(expected_output),
+        )
+
         results.append(
             AgentResult(
                 sample_id=sample["id"],
@@ -236,6 +294,7 @@ def run_agent_on_training_split(
                 score=scoring["score"],
                 matched_entities=scoring["matched"],
                 judge_verdict=judge_verdict,
+                cosine_similarity=cosine_similarity,
             )
         )
 
@@ -293,7 +352,13 @@ def _parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable the LLM-as-a-judge evaluator (enabled by default).",
     )
-    parser.set_defaults(judge_enabled=True)
+    parser.add_argument(
+        "--no-cosine",
+        dest="cosine_enabled",
+        action="store_false",
+        help="Disable the embedding-based cosine-similarity scorer (enabled by default).",
+    )
+    parser.set_defaults(judge_enabled=True, cosine_enabled=True)
     return parser.parse_args()
 
 
@@ -307,6 +372,7 @@ def main() -> None:
         output_path=Path(args.output_file),
         dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
         judge_enabled=args.judge_enabled,
+        cosine_enabled=args.cosine_enabled,
     )
 
 
