@@ -14,6 +14,7 @@ from functools import lru_cache
 from langfuse import get_client
 from pydantic_ai import Agent
 
+from src.agents.agent_a_ace.playbook_agent import PlaybookInjectingAgent, wrap_with_playbook
 from src.common.config import AgentSettings, get_settings
 from src.common.llm import build_model
 from src.common.mcp_client import build_mcp_servers
@@ -54,7 +55,7 @@ def _configure_langfuse(settings: AgentSettings) -> None:
 
 
 @lru_cache
-def get_agent() -> Agent[None, str]:
+def get_agent() -> PlaybookInjectingAgent:
     """Return a cached pydantic-ai ``Agent`` configured for Agent A.
 
     The agent uses the shared system prompt, LiteLLM-backed model, and MCP
@@ -67,13 +68,14 @@ def get_agent() -> Agent[None, str]:
     settings = get_settings()
     _configure_langfuse(settings)
 
-    return Agent(
+    agent = Agent(
         model=build_model(settings),
         output_type=str,
         system_prompt=SYSTEM_PROMPT,
         toolsets=build_mcp_servers(settings),
         name="agent_a_ace",
     )
+    return wrap_with_playbook(agent)
 
 
 def main() -> None:
