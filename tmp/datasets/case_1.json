@@ -1,0 +1,8 @@
+{
+  "id": "case-001",
+  "input": {
+    "alert_text": "ALERT: KubePodCrashLooping\nSeverity: critical\nSummary: Pod nginx-deploy is crash looping."
+  },
+  "expected_output": "code_bug: unterminated quoted string in entrypoint causes exit code 1.",
+  "golden_entities": ["nginx-deploy", "unterminated quoted string", "exit code 1"]
+}

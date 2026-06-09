@@ -1,0 +1,92 @@
+[
+  {
+    "rca_output": "<root_causes>\ncapacity_issue: container_out_of_memory\n</root_causes>\n\n<label.why>\nThe container for the producer pod encountered memory issues, leading to the exit code 137, which indicates that the container was terminated due to being out of memory. This caused the pod to enter a CrashLoopBackOff state, preventing the deployment from achieving its desired replica count.\n</label.why>\n\n<label.evidence>\nPod producer-f89b48dc9-9c5jp showed a termination state with exit code 137, indicating it was killed due to memory exhaustion. Events logged include \"Liveness probe failed: HTTP probe failed with statuscode: 503\" and \"Back-off restarting failed container producer\" along with several Restart Counts.\n</label.evidence>\n\n<proposed_solution>\n[\"Check the resource requests and limits for the producer container in the deployment configuration.\", \"Increase the memory limit in the deployment specifications as appropriate.\", \"Apply the configuration changes with 'kubectl apply -f deployment.yaml'.\", \"Monitor the pod for improved stability and readiness status.\"]\n</proposed_solution>",
+    "sample_id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch",
+    "expected_output": "Root cause: broker_queue_full - Deployment cannot achieve desired replicas due to broker queue being full\nWhy: Deployment data-pipeline-test/producer (producer) has 0 ready replicas out of 1 desired. The producer pods are in CrashLoopBackOff because the broker queue has reached its maximum capacity (100 messages) and cannot accept more messages. The queue is full because the client is not reading messages from it, as the client is configured to connect to broker-service on wrong port (8002 instead of correct port 8001), preventing message consumption.\nEvidence: Deployment shows 0/1 replicas ready, producer pods in CrashLoopBackOff state, Prometheus metrics show broker_queue_utilization=1.0 (100% full), broker_messages_received_total reached max queue size of 100, broker_queue_max_size=100, client pointing to wrong port 8002 instead of 8001, queue full condition persists since 2026-03-16T10:16:55.147922999Z",
+    "golden_entities": [
+      "broker-service",
+      "queue is full",
+      "maximum capacity"
+    ],
+    "score": 0,
+    "matched_entities": [],
+    "judge_verdict": {
+      "root_cause_match": 0.0,
+      "evidence_quality": 0.5,
+      "completeness": 0.0,
+      "overall": 0.1,
+      "reasoning": "The agent identifies a capacity issue related to memory, which is not the same root cause as the broker queue being full. The evidence cited is somewhat relevant but does not address the primary issue of the broker queue being full.",
+      "judge_model": "gpt-4o-mini"
+    },
+    "cosine_similarity": {
+      "rca_similarity": 0.48668301355262406,
+      "golden_entity_similarities": {
+        "broker-service": -0.06685612520119218,
+        "queue is full": 0.18260382761526286,
+        "maximum capacity": 0.30574960884816554
+      },
+      "golden_entities_avg": 0.14049910375407873,
+      "golden_entities_max": 0.30574960884816554
+    }
+  },
+  {
+    "rca_output": "<root_cause>capacity_issue: insufficient resources for producer pod</root_cause>\n\n<label.why>\nThe producer pod is failing to start as it is encountering a CrashLoopBackOff error. This indicates that the pod is repeatedly crashing upon startup, likely due to resource constraints or failure in application logic. The deployment is configured to maintain one replica, but since the pod is in a crash state, it results in a mismatch between the desired and actual state of replicas, leading to the KubeDeploymentReplicasMismatch alert.\n</label.why>\n\n<label.evidence>\nThe deployment for the `producer` has 0/1 pods available, with the pod `producer-f89b48dc9-9c5jp` showing a status of `CrashLoopBackOff` and having restarted 5 times. The other deployments (`broker` and `client`) are functioning as expected, each with 1/1 pods ready.\n</label.evidence>\n\n<proposed_solution>\n[\"Examine the logs of the producer pod with 'kubectl logs producer-f89b48dc9-9c5jp -n data-pipeline-test' to identify the cause of the crash.\", \"Increase resource limits/requests for the producer deployment in the deployment specification if resource constraints are evident.\", \"Redeploy the updated configuration and monitor the pod status.\"]\n</proposed_solution>",
+    "sample_id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased",
+    "expected_output": "Root cause: broker_queue_full - Deployment cannot achieve desired replicas due to broker queue being full\nWhy: Deployment data-pipeline-test/producer (producer) has 0 ready replicas out of 1 desired. The producer pods are in CrashLoopBackOff because the broker queue has reached its maximum capacity (100 messages) and cannot accept more messages. The queue is full because the client is not reading messages from it, as the client is configured to connect to broker-service on wrong port (8002 instead of correct port 8001), preventing message consumption.\nEvidence: Deployment shows 0/1 replicas ready, producer pods in CrashLoopBackOff state, Prometheus metrics show broker_queue_utilization=1.0 (100% full), broker_messages_received_total reached max queue size of 100, broker_queue_max_size=100, client pointing to wrong port 8002 instead of 8001, queue full condition persists since 2026-03-16T10:16:55.147922999Z",
+    "golden_entities": [
+      "broker-service",
+      "queue is full",
+      "maximum capacity"
+    ],
+    "score": 0,
+    "matched_entities": [],
+    "judge_verdict": {
+      "root_cause_match": 0.0,
+      "evidence_quality": 0.5,
+      "completeness": 0.0,
+      "overall": 0.1,
+      "reasoning": "The agent identifies a capacity issue but does not match the specific root cause of the broker queue being full due to the client connecting to the wrong port. The evidence provided is vague and does not directly reference the specific metrics or conditions outlined in the ground truth.",
+      "judge_model": "gpt-4o-mini"
+    },
+    "cosine_similarity": {
+      "rca_similarity": 0.517056091512865,
+      "golden_entity_similarities": {
+        "broker-service": -0.061620675532545015,
+        "queue is full": 0.05943106362187972,
+        "maximum capacity": 0.24852476422918626
+      },
+      "golden_entities_avg": 0.08211171743950699,
+      "golden_entities_max": 0.24852476422918626
+    }
+  },
+  {
+    "rca_output": "### Root Cause Analysis\n\n#### Root Cause(s) Identification:\n**capacity_issue: CrashLoopBackOff due to failed health checks; dependency_failure: 503 Service Unavailable when contacting broker**\n\n#### Causal Mechanism:\n1. **CrashLoopBackOff:** The `producer` pod is in a `CrashLoopBackOff` state due to repeated failures in starting up. The exit code of the container (137) indicates that it was likely terminated due to excessive memory usage or killed by the system.\n2. **Failed Health Checks:** The logs indicate multiple instances of the application failing to send data, returning a 503 Service Unavailable status. This suggests that the `producer` pod is unable to communicate effectively with the `broker` service. The specifically logged entries note a failure to send data, which corresponds to the health probe failures leading to container restarts.\n3. **Dependency Availability:** The service the producer is attempting to contact (`broker`) appears unavailable (`GET /health` results in 503 errors). This service unavailability is causing the `producer` to continuously fail its startup and health checks.\n\n#### Evidence:\n- The `producer` pod is in `CrashLoopBackOff`, with exit code 137 observed in events and logs.\n- The logs indicate \"Failed to send data. Status code: 503,\" correlating with both liveness and readiness probe failures described in the health check outcomes.\n- Events log show `Readiness probe failed: HTTP probe failed with status code: 503`, indicating that the `producer` couldn't reach the `broker`.\n\n### Proposed Solution\n```json\n[\n    \"Investigate the broker service for underlying issues or resource limits leading to its unavailability.\",\n    \"Check broker service configuration for correct endpoint settings and ensure it's properly handling requests.\",\n    \"Ensure sufficient resources are allocated to both broker and producer pods to prevent crashing and BackOff states.\",\n    \"Monitor and compare the metrics of the broker and producer to find potential thresholds being hit.\"\n]\n```",
+    "sample_id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased-s1200",
+    "expected_output": "Root cause: broker_queue_full - Deployment cannot achieve desired replicas due to broker queue being full\nWhy: Deployment data-pipeline-test/producer (producer) has 0 ready replicas out of 1 desired. The producer pods are in CrashLoopBackOff because the broker queue has reached its maximum capacity (100 messages) and cannot accept more messages. The queue is full because the client is not reading messages from it, as the client is configured to connect to broker-service on wrong port (8002 instead of correct port 8001), preventing message consumption.\nEvidence: Deployment shows 0/1 replicas ready, producer pods in CrashLoopBackOff state, Prometheus metrics show broker_queue_utilization=1.0 (100% full), broker_messages_received_total reached max queue size of 100, broker_queue_max_size=100, client pointing to wrong port 8002 instead of 8001, queue full condition persists since 2026-03-16T10:16:55.147922999Z",
+    "golden_entities": [
+      "broker-service",
+      "queue is full",
+      "maximum capacity"
+    ],
+    "score": 0,
+    "matched_entities": [],
+    "judge_verdict": {
+      "root_cause_match": 0.0,
+      "evidence_quality": 0.5,
+      "completeness": 0.0,
+      "overall": 0.1,
+      "reasoning": "The agent identifies symptoms like CrashLoopBackOff and 503 errors but fails to recognize the underlying root cause related to the broker queue being full and the client misconfiguration. The evidence cited does not align with the specific metrics and conditions mentioned in the ground truth.",
+      "judge_model": "gpt-4o-mini"
+    },
+    "cosine_similarity": {
+      "rca_similarity": 0.49399324293624697,
+      "golden_entity_similarities": {
+        "broker-service": 0.11211007192610219,
+        "queue is full": 0.06460442203093388,
+        "maximum capacity": 0.16802404273875568
+      },
+      "golden_entities_avg": 0.11491284556526392,
+      "golden_entities_max": 0.16802404273875568
+    }
+  }
+]

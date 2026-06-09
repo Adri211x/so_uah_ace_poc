@@ -1,0 +1,29 @@
+[
+  {
+    "scenario_ref": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch",
+    "scenario_id": "kubernetes-data-pipeline",
+    "family": "container_error",
+    "root_cause_key": "broker_queue_full",
+    "variation_type": "real",
+    "split": "test",
+    "file": "kubernetes-data-pipeline.json"
+  },
+  {
+    "scenario_ref": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased",
+    "scenario_id": "kubernetes-data-pipeline",
+    "family": "container_error",
+    "root_cause_key": "broker_queue_full",
+    "variation_type": "alert_rephrased",
+    "split": "test",
+    "file": "kubernetes-data-pipeline--alert_rephrased.json"
+  },
+  {
+    "scenario_ref": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased-s1200",
+    "scenario_id": "kubernetes-data-pipeline",
+    "family": "container_error",
+    "root_cause_key": "broker_queue_full",
+    "variation_type": "alert_rephrased",
+    "split": "test",
+    "file": "kubernetes-data-pipeline--alert_rephrased-s1200.json"
+  }
+]
