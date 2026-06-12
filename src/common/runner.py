@@ -16,6 +16,7 @@ evaluator infrastructure issues.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -35,11 +36,13 @@ class SyncAgent(Protocol):
     Matches ``pydantic_ai.Agent.run_sync`` for typing without importing Agent here.
     """
 
-    def run_sync(self, user_prompt: str) -> Any:
+    def run_sync(self, user_prompt: str, *args: Any, **kwargs: Any) -> Any:
         """Run the agent once and return a result or raw string.
 
         Args:
             user_prompt: Alert text (and optional context) as a single string.
+            args: Optional positional arguments supported by the concrete agent.
+            kwargs: Optional keyword arguments supported by the concrete agent.
 
         Returns:
             ``AgentRunResult``-like object with ``output``, or a plain string.
@@ -72,6 +75,23 @@ def _extract_agent_output(agent_response: Any) -> str:
     """
     output = getattr(agent_response, "output", agent_response)
     return str(output).strip()
+
+
+def _run_agent(agent: SyncAgent, agent_input: AgentInput) -> Any:
+    """Run an agent with scenario context when the concrete implementation supports it.
+
+    Args:
+        agent: Agent exposing a synchronous ``run_sync`` method.
+        agent_input: Validated alert text and optional scenario metadata.
+
+    Returns:
+        Raw response produced by the concrete agent.
+    """
+    parameters = inspect.signature(agent.run_sync).parameters
+    if agent_input.scenario is not None and "scenario" in parameters:
+        return agent.run_sync(agent_input.alert_text, scenario=agent_input.scenario)
+
+    return agent.run_sync(agent_input.alert_text)
 
 
 def _resolve_sample(loaded: Any, row: dict[str, Any], dataset_file: str) -> dict[str, Any]:
@@ -208,7 +228,7 @@ def run_agent_on_training_split(
 
     Only rows where ``split == "test"`` are evaluated. For each row, the
     companion dataset file named in ``file`` is loaded; ``input.alert_text``
-    is sent to the agent.
+    is sent to the agent, with scenario metadata forwarded when supported.
 
     Args:
         agent: Callable agent exposing ``run_sync``.
@@ -263,7 +283,7 @@ def run_agent_on_training_split(
             alert_text=alert_text,
             scenario=row.get("base_scenario") or row.get("scenario_id"),
         )
-        agent_response = agent.run_sync(agent_input.alert_text)
+        agent_response = _run_agent(agent, agent_input)
 
         rca_output = _extract_agent_output(agent_response)
         expected_output = sample.get("expected_output", "")

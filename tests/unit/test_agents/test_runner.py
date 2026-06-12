@@ -28,6 +28,17 @@ class ScriptedAgent:
         return self._responses[user_prompt]
 
 
+class ScenarioAwareAgent:
+    """Stub agent that records optional scenario metadata."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def run_sync(self, user_prompt: str, *, scenario: str | None = None) -> str:
+        self.calls.append((user_prompt, scenario))
+        return f"RCA for {scenario}: {user_prompt}"
+
+
 def _write_json(path: Path, payload: object) -> None:
     """Write ``payload`` as UTF-8 JSON, creating parent directories if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -206,6 +217,47 @@ def test_runner_resolves_sample_from_list_dataset(tmp_path: Path) -> None:
     assert results[0].sample_id == "kubernetes-data-pipeline-KubePodCrashLooping"
     assert results[0].expected_output == "right sample"
     assert "ALERT crash" in results[0].rca_output
+
+
+def test_runner_passes_scenario_to_agents_that_accept_it(tmp_path: Path) -> None:
+    """Runner should forward split scenario metadata to ACE-compatible agents."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "scenario_id": "kubernetes-data-pipeline",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "Root cause expected.",
+            "golden_entities": ["x", "y", "z"],
+        },
+    )
+    agent = ScenarioAwareAgent()
+
+    results = run_agent_on_training_split(
+        agent=agent,
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert agent.calls == [("ALERT test", "kubernetes-data-pipeline")]
+    assert results[0].rca_output == "RCA for kubernetes-data-pipeline: ALERT test"
 
 
 def test_runner_attaches_judge_verdict_when_enabled(tmp_path: Path) -> None:
