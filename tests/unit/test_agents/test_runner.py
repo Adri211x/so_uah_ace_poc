@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from src.agents.agent_a_ace.playbook_agent import PlaybookInjectingAgent
 from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
-from src.common.runner import run_agent_on_training_split
+from src.common.runner import main, run_agent_on_training_split
 
 
 class FakeAgent:
@@ -37,6 +39,17 @@ class ScenarioAwareAgent:
     def run_sync(self, user_prompt: str, *, scenario: str | None = None) -> str:
         self.calls.append((user_prompt, scenario))
         return f"RCA for {scenario}: {user_prompt}"
+
+
+class PromptRecordingAgent:
+    """Inner agent that records the exact prompt it receives."""
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def run_sync(self, user_prompt: str) -> str:
+        self.prompts.append(user_prompt)
+        return "The alert needs more investigation."
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -258,6 +271,218 @@ def test_runner_passes_scenario_to_agents_that_accept_it(tmp_path: Path) -> None
 
     assert agent.calls == [("ALERT test", "kubernetes-data-pipeline")]
     assert results[0].rca_output == "RCA for kubernetes-data-pipeline: ALERT test"
+
+
+def test_runner_updates_ace_playbook_when_learning_is_enabled(tmp_path: Path) -> None:
+    """ACE learning should run after result persistence when explicitly enabled."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+    playbook_path = tmp_path / "playbook.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "base_scenario": "kubernetes-service-routing",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "Root cause expected.",
+            "golden_entities": ["x", "y", "z"],
+        },
+    )
+
+    with patch("src.common.runner._update_ace_playbook") as mocked_learning_loop:
+        results = run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+            ace_learning_enabled=True,
+            ace_playbook_path=playbook_path,
+        )
+
+    mocked_learning_loop.assert_called_once_with(
+        results=results,
+        playbook_path=playbook_path,
+        scenario_by_sample_id={"sample-test": "kubernetes-service-routing"},
+    )
+    assert output_file.exists()
+
+
+def test_runner_ace_learning_updates_prompt_on_next_run(tmp_path: Path) -> None:
+    """Running Agent A twice should use first-run lessons in the second prompt."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    first_output_file = tmp_path / "results" / "agent_a_first.json"
+    second_output_file = tmp_path / "results" / "agent_a_second.json"
+    playbook_path = tmp_path / "playbook.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "scenario_id": "kubernetes-service-routing",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT service routing"},
+            "expected_output": "Service targetPort mismatch caused connection refused errors.",
+            "golden_entities": ["service targetPort", "connection refused"],
+        },
+    )
+
+    first_inner_agent = PromptRecordingAgent()
+    first_agent = PlaybookInjectingAgent(first_inner_agent, playbook_path=playbook_path)
+    run_agent_on_training_split(
+        agent=first_agent,
+        training_split_path=training_file,
+        output_path=first_output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        ace_learning_enabled=True,
+        ace_playbook_path=playbook_path,
+    )
+
+    assert first_inner_agent.prompts == ["ALERT service routing"]
+    assert playbook_path.exists()
+
+    second_inner_agent = PromptRecordingAgent()
+    second_agent = PlaybookInjectingAgent(second_inner_agent, playbook_path=playbook_path)
+    run_agent_on_training_split(
+        agent=second_agent,
+        training_split_path=training_file,
+        output_path=second_output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert len(second_inner_agent.prompts) == 1
+    assert "Learned RCA playbook:" in second_inner_agent.prompts[0]
+    assert "service targetPort" in second_inner_agent.prompts[0]
+    assert "Alert:\nALERT service routing" in second_inner_agent.prompts[0]
+
+
+def test_runner_does_not_update_ace_playbook_by_default(tmp_path: Path) -> None:
+    """Direct runner calls should not mutate ACE state unless learning is enabled."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_b.json"
+
+    _write_json(
+        training_file,
+        [{"id": "sample-test", "file": "test_case.json", "split": "test"}],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "Root cause expected.",
+            "golden_entities": ["x", "y", "z"],
+        },
+    )
+
+    with patch("src.common.runner._update_ace_playbook") as mocked_learning_loop:
+        run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+        )
+
+    mocked_learning_loop.assert_not_called()
+
+
+def test_cli_enables_ace_learning_for_agent_a(tmp_path: Path) -> None:
+    """CLI runs should update the ACE playbook automatically for Agent A."""
+    args = SimpleNamespace(
+        agent="agent_a_ace",
+        training_file=str(tmp_path / "training.json"),
+        output_file=str(tmp_path / "results.json"),
+        dataset_dir=None,
+        judge_enabled=False,
+        cosine_enabled=False,
+        ace_learning_disabled=False,
+    )
+
+    with (
+        patch("src.common.runner._parse_args", return_value=args),
+        patch("src.common.runner._load_agent", return_value=FakeAgent()),
+        patch("src.common.runner.run_agent_on_training_split") as mocked_runner,
+    ):
+        main()
+
+    mocked_runner.assert_called_once()
+    assert mocked_runner.call_args.kwargs["ace_learning_enabled"] is True
+
+
+def test_cli_can_disable_ace_learning_for_agent_a(tmp_path: Path) -> None:
+    """The CLI should allow Agent A evaluations without mutating the playbook."""
+    args = SimpleNamespace(
+        agent="agent_a_ace",
+        training_file=str(tmp_path / "training.json"),
+        output_file=str(tmp_path / "results.json"),
+        dataset_dir=None,
+        judge_enabled=False,
+        cosine_enabled=False,
+        ace_learning_disabled=True,
+    )
+
+    with (
+        patch("src.common.runner._parse_args", return_value=args),
+        patch("src.common.runner._load_agent", return_value=FakeAgent()),
+        patch("src.common.runner.run_agent_on_training_split") as mocked_runner,
+    ):
+        main()
+
+    mocked_runner.assert_called_once()
+    assert mocked_runner.call_args.kwargs["ace_learning_enabled"] is False
+
+
+def test_cli_leaves_ace_learning_disabled_for_baseline(tmp_path: Path) -> None:
+    """Baseline CLI runs must keep the ACE learning loop disabled."""
+    args = SimpleNamespace(
+        agent="agent_b_baseline",
+        training_file=str(tmp_path / "training.json"),
+        output_file=str(tmp_path / "results.json"),
+        dataset_dir=None,
+        judge_enabled=False,
+        cosine_enabled=False,
+        ace_learning_disabled=False,
+    )
+
+    with (
+        patch("src.common.runner._parse_args", return_value=args),
+        patch("src.common.runner._load_agent", return_value=FakeAgent()),
+        patch("src.common.runner.run_agent_on_training_split") as mocked_runner,
+    ):
+        main()
+
+    mocked_runner.assert_called_once()
+    assert mocked_runner.call_args.kwargs["ace_learning_enabled"] is False
 
 
 def test_runner_attaches_judge_verdict_when_enabled(tmp_path: Path) -> None:

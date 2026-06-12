@@ -94,6 +94,32 @@ def _run_agent(agent: SyncAgent, agent_input: AgentInput) -> Any:
     return agent.run_sync(agent_input.alert_text)
 
 
+def _update_ace_playbook(
+    *,
+    results: list[AgentResult],
+    playbook_path: Path | None,
+    scenario_by_sample_id: dict[str, str] | None,
+) -> None:
+    """Update the ACE playbook from evaluated runner results.
+
+    Imports are kept lazy so baseline runs do not import Agent A internals.
+
+    Args:
+        results: Evaluated agent outputs.
+        playbook_path: Optional explicit playbook path. ``None`` uses ACE env/defaults.
+        scenario_by_sample_id: Optional sample-to-scenario lookup.
+    """
+    from src.agents.agent_a_ace.loop import run_ace_learning_loop
+    from src.agents.agent_a_ace.playbook_agent import resolve_playbook_path
+
+    resolved_path = playbook_path if playbook_path is not None else resolve_playbook_path()
+    run_ace_learning_loop(
+        results,
+        playbook_path=resolved_path,
+        scenario_by_sample_id=scenario_by_sample_id,
+    )
+
+
 def _resolve_sample(loaded: Any, row: dict[str, Any], dataset_file: str) -> dict[str, Any]:
     """Return the single sample dict referenced by a split row.
 
@@ -223,6 +249,8 @@ def run_agent_on_training_split(
     *,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
+    ace_learning_enabled: bool = False,
+    ace_playbook_path: Path | None = None,
 ) -> list[AgentResult]:
     """Execute an agent over **test** rows in a training split file.
 
@@ -243,6 +271,10 @@ def run_agent_on_training_split(
             scored with embedding-based cosine similarity (RCA vs expected
             output and per-golden-entity vs RCA). Pass ``False`` via
             ``--no-cosine`` to skip the sentence-transformer load.
+        ace_learning_enabled: When ``True`` update the ACE playbook after
+            writing evaluation results.
+        ace_playbook_path: Optional playbook destination for ACE learning. If
+            omitted, ACE resolves ``ACE_PLAYBOOK_PATH`` or ``tmp/playbook.json``.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
@@ -263,6 +295,7 @@ def run_agent_on_training_split(
         raise FileNotFoundError(f"Dataset directory not found: {resolved_dataset_dir}")
 
     results: list[AgentResult] = []
+    scenario_by_sample_id: dict[str, str] = {}
     for row in split_rows:
         # Train rows are skipped; the ticket evaluates generalization on test only.
         if row.get("split") != "test":
@@ -283,6 +316,9 @@ def run_agent_on_training_split(
             alert_text=alert_text,
             scenario=row.get("base_scenario") or row.get("scenario_id"),
         )
+        if agent_input.scenario is not None:
+            scenario_by_sample_id[str(sample["id"])] = agent_input.scenario
+
         agent_response = _run_agent(agent, agent_input)
 
         rca_output = _extract_agent_output(agent_response)
@@ -321,6 +357,13 @@ def run_agent_on_training_split(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump([item.model_dump() for item in results], handle, indent=2, ensure_ascii=False)
+
+    if ace_learning_enabled:
+        _update_ace_playbook(
+            results=results,
+            playbook_path=ace_playbook_path,
+            scenario_by_sample_id=scenario_by_sample_id or None,
+        )
 
     return results
 
@@ -378,6 +421,12 @@ def _parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable the embedding-based cosine-similarity scorer (enabled by default).",
     )
+    parser.add_argument(
+        "--no-ace-learning",
+        dest="ace_learning_disabled",
+        action="store_true",
+        help="Do not update the ACE playbook after Agent A evaluation.",
+    )
     parser.set_defaults(judge_enabled=True, cosine_enabled=True)
     return parser.parse_args()
 
@@ -386,6 +435,7 @@ def main() -> None:
     """CLI entrypoint: parse flags, load the agent, run the split, write JSON."""
     args = _parse_args()
     agent = _load_agent(args.agent)
+    ace_learning_enabled = args.agent == "agent_a_ace" and not args.ace_learning_disabled
     run_agent_on_training_split(
         agent=agent,
         training_split_path=Path(args.training_file),
@@ -393,6 +443,7 @@ def main() -> None:
         dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
         judge_enabled=args.judge_enabled,
         cosine_enabled=args.cosine_enabled,
+        ace_learning_enabled=ace_learning_enabled,
     )
 
 
