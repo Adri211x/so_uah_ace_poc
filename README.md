@@ -47,7 +47,14 @@ so_ua_ace_poc/
 |
 |-- src/agents/                    # RCA agents under evaluation
 |   |-- agent_a_ace/               #   ACE agent
+|   |   |-- agent.py               #     pydantic-ai Agent A factory and Langfuse wiring
+|   |   |-- playbook_agent.py      #     Wrapper that injects playbook context into Generator prompts
+|   |   |-- reflector.py           #     LLM/rule-based Reflector that extracts AceInsight lessons
+|   |   |-- curator.py             #     JSON playbook Curator and Generator/Curator prompt builders
+|   |   |-- loop.py                #     ACE learning loop that reflects results and updates the playbook
+|   |   |-- schemas.py             #     Agent A compatibility exports for ACE schemas
 |   |-- agent_b_baseline/          #   Baseline agent
+|   |   |-- agent.py               #     pydantic-ai baseline agent factory with shared RCA prompt
 |
 |-- src/common/                    # Shared evaluation pipeline
 |   |-- runner.py                  #   Runs agents over a split, writes results JSON
