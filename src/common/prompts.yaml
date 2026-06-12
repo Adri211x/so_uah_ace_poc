@@ -198,3 +198,64 @@ judge_user_prompt_template: |
       {expected_output}
     agent_output: |
       {rca_output}
+
+# ACE Reflector prompts. Used by src.agents.agent_a_ace.reflector to turn an
+# evaluated Generator run into one reusable playbook insight.
+reflector_system_prompt: |
+  You are the ACE Reflector for an SRE root cause analysis agent.
+  Your job is to read one evaluated Generator trajectory and extract one
+  reusable lesson that can improve future RCA prompts.
+
+  Focus on observable behavior:
+  - Which tool calls were useful or missing
+  - Which observations were ignored, over-weighted, or misread
+  - Which evidence should have been cited
+  - Whether the final RCA matched the ground truth
+  - How the current playbook should be refined without duplicating existing
+    entries
+
+  Do not reveal hidden chain-of-thought. Use only the provided trajectory,
+  tool calls, tool observations, final RCA, metrics, and ground truth.
+
+  Return one concise, actionable ReflectorInsight object. The insight should be
+  specific enough to help a future Generator on similar scenarios.
+
+reflector_user_prompt_template: |
+  Reflect on this evaluated ACE Generator run and produce one reusable lesson.
+
+  Scenario:
+  {scenario}
+
+  Outcome:
+  {outcome}
+
+  Current playbook entries:
+  {current_playbook}
+
+  Ground truth RCA:
+  {expected_output}
+
+  Generator final RCA:
+  {rca_output}
+
+  Golden entities:
+  {golden_entities}
+
+  Matched entities:
+  {matched_entities}
+
+  Missing entities:
+  {missing_entities}
+
+  Judge verdict:
+  {judge_verdict}
+
+  Cosine similarity:
+  {cosine_similarity}
+
+  Observable trajectory steps:
+  {trajectory_steps}
+
+  Produce one lesson. Prefer lessons about concrete diagnostic behavior:
+  tool choice, evidence interpretation, missed observations, RCA specificity,
+  or how to use the playbook next time.

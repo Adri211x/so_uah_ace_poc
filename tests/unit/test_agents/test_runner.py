@@ -466,16 +466,20 @@ def test_runner_ace_learning_updates_prompt_on_next_run(tmp_path: Path) -> None:
 
     first_inner_agent = PromptRecordingAgent()
     first_agent = PlaybookInjectingAgent(first_inner_agent, playbook_path=playbook_path)
-    run_agent_on_training_split(
-        agent=first_agent,
-        training_split_path=training_file,
-        output_path=first_output_file,
-        dataset_dir=dataset_dir,
-        judge_enabled=False,
-        cosine_enabled=False,
-        ace_learning_enabled=True,
-        ace_playbook_path=playbook_path,
-    )
+    with patch(
+        "src.agents.agent_a_ace.reflector._generate_llm_insight",
+        return_value="Check service targetPort against observed container ports.",
+    ):
+        run_agent_on_training_split(
+            agent=first_agent,
+            training_split_path=training_file,
+            output_path=first_output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+            ace_learning_enabled=True,
+            ace_playbook_path=playbook_path,
+        )
 
     assert first_inner_agent.prompts == ["ALERT service routing"]
     assert playbook_path.exists()

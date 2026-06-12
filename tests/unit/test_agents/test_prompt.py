@@ -3,6 +3,8 @@
 from src.common.prompt import (
     JUDGE_SYSTEM_PROMPT,
     JUDGE_USER_PROMPT_TEMPLATE,
+    REFLECTOR_SYSTEM_PROMPT,
+    REFLECTOR_USER_PROMPT_TEMPLATE,
     SYSTEM_PROMPT,
 )
 
@@ -33,3 +35,26 @@ def test_judge_user_prompt_template_contains_required_placeholders() -> None:
     )
     assert "AGENT_OUTPUT_PLACEHOLDER" in formatted
     assert "GROUND_TRUTH_PLACEHOLDER" in formatted
+
+
+def test_reflector_prompts_cover_trajectory_and_playbook_context() -> None:
+    """Reflector prompts must accept trajectory, result, and playbook context."""
+    assert "trajectory" in REFLECTOR_SYSTEM_PROMPT.lower()
+    assert "playbook" in REFLECTOR_SYSTEM_PROMPT.lower()
+
+    formatted = REFLECTOR_USER_PROMPT_TEMPLATE.format(
+        scenario="SCENARIO_PLACEHOLDER",
+        outcome="OUTCOME_PLACEHOLDER",
+        current_playbook="PLAYBOOK_PLACEHOLDER",
+        expected_output="GROUND_TRUTH_PLACEHOLDER",
+        rca_output="RCA_PLACEHOLDER",
+        golden_entities="GOLDEN_PLACEHOLDER",
+        matched_entities="MATCHED_PLACEHOLDER",
+        missing_entities="MISSING_PLACEHOLDER",
+        judge_verdict="JUDGE_PLACEHOLDER",
+        cosine_similarity="COSINE_PLACEHOLDER",
+        trajectory_steps="TRAJECTORY_PLACEHOLDER",
+    )
+    assert "SCENARIO_PLACEHOLDER" in formatted
+    assert "PLAYBOOK_PLACEHOLDER" in formatted
+    assert "TRAJECTORY_PLACEHOLDER" in formatted

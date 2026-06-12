@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 from src.agents.agent_a_ace.curator import (
     JsonPlaybookCurator,
@@ -14,10 +16,11 @@ from src.agents.agent_a_ace.curator import (
 )
 from src.agents.agent_a_ace.loop import update_playbook_from_results
 from src.agents.agent_a_ace.playbook_agent import PlaybookInjectingAgent
-from src.agents.agent_a_ace.reflector import reflect_result
+from src.agents.agent_a_ace.reflector import ReflectorInsight, reflect_result
+from src.common.config import AgentSettings
 from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
-from src.common.schemas import AceInsight, AgentResult, Playbook, PlaybookEntry
+from src.common.schemas import AceInsight, AgentResult, Playbook, PlaybookEntry, TrajectoryStep
 
 
 def _agent_result(
@@ -81,7 +84,11 @@ def test_reflector_extracts_positive_insight_from_fully_successful_result() -> N
         cosine_similarity=0.9,
     )
 
-    insights = reflect_result(result, scenario="kubernetes-service-routing")
+    insights = reflect_result(
+        result,
+        scenario="kubernetes-service-routing",
+        llm_enabled=False,
+    )
 
     assert len(insights) == 1
     assert insights[0].outcome == "success"
@@ -94,7 +101,11 @@ def test_reflector_extracts_corrective_insight_from_missing_golden_entities() ->
     """Failed runs should produce lessons about missing expected evidence."""
     result = _agent_result(score=1, matched_entities=["service targetPort"])
 
-    insights = reflect_result(result, scenario="kubernetes-service-routing")
+    insights = reflect_result(
+        result,
+        scenario="kubernetes-service-routing",
+        llm_enabled=False,
+    )
 
     assert len(insights) == 1
     assert insights[0].outcome == "failure"
@@ -110,7 +121,7 @@ def test_reflector_marks_full_golden_match_as_failure_when_judge_is_low() -> Non
         judge_overall=0.4,
     )
 
-    insights = reflect_result(result)
+    insights = reflect_result(result, llm_enabled=False)
 
     assert insights[0].outcome == "failure"
     assert "ground-truth root cause" in insights[0].text
@@ -124,10 +135,81 @@ def test_reflector_marks_full_golden_match_as_failure_when_cosine_is_low() -> No
         cosine_similarity=0.2,
     )
 
-    insights = reflect_result(result)
+    insights = reflect_result(result, llm_enabled=False)
 
     assert insights[0].outcome == "failure"
     assert "semantically distant" in insights[0].text
+
+
+def test_llm_reflector_uses_trajectory_result_and_current_playbook() -> None:
+    """LLM Reflector should receive trajectory, evaluation, and playbook context."""
+    result = _agent_result(
+        score=1,
+        matched_entities=["service targetPort"],
+    ).model_copy(
+        update={
+            "trajectory_steps": [
+                TrajectoryStep(
+                    step_order=1,
+                    component="generator",
+                    action_type="tool_call",
+                    input_data={"tool_name": "kubectl_get_service"},
+                    output_data={"tool_call_id": "call-1"},
+                ),
+                TrajectoryStep(
+                    step_order=2,
+                    component="generator",
+                    action_type="tool_return",
+                    input_data={"tool_name": "kubectl_get_service"},
+                    output_data={"content": {"targetPort": 8080, "containerPort": 3000}},
+                ),
+            ]
+        }
+    )
+    playbook = Playbook(
+        entries=[
+            PlaybookEntry(
+                id="entry-1",
+                text="Compare Service targetPort with the container port.",
+                scenario="kubernetes-service-routing",
+                helpful_count=2,
+            )
+        ]
+    )
+    captured_prompts: list[str] = []
+
+    class FakeReflectorAgent:
+        """Fake LLM reflector that records its prompt."""
+
+        def run_sync(self, user_prompt: str) -> object:
+            captured_prompts.append(user_prompt)
+            return SimpleNamespace(
+                output=ReflectorInsight(
+                    insight_text=(
+                        "When service routing fails, compare the Service targetPort with "
+                        "the observed container port before finalizing the RCA."
+                    )
+                )
+            )
+
+    settings = AgentSettings(litellm_api_key="test-key", reflector_model_name="test-model")
+    with patch(
+        "src.agents.agent_a_ace.reflector._build_reflector_agent",
+        return_value=FakeReflectorAgent(),
+    ) as mocked_builder:
+        insights = reflect_result(
+            result,
+            scenario="kubernetes-service-routing",
+            playbook=playbook,
+            settings=settings,
+        )
+
+    mocked_builder.assert_called_once_with("test-model")
+    assert len(insights) == 1
+    assert "container port" in insights[0].text
+    assert "kubectl_get_service" in captured_prompts[0]
+    assert "Compare Service targetPort" in captured_prompts[0]
+    assert "targetPort" in captured_prompts[0]
 
 
 def test_curator_deduplicates_insights_and_tracks_counters(tmp_path: Path) -> None:
@@ -208,6 +290,7 @@ def test_update_playbook_from_results_runs_reflector_and_curator(tmp_path: Path)
             "sample-success": "kubernetes-service-routing",
             "sample-failure": "kubernetes-service-routing",
         },
+        llm_enabled=False,
     )
 
     assert playbook_path.exists()

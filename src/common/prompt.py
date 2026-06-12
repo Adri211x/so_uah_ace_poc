@@ -1,9 +1,10 @@
-"""Shared prompts for RCA agents and the LLM-as-a-judge evaluator.
+"""Shared prompts for RCA agents, evaluator, and ACE Reflector.
 
 Agent A and Agent B must use the same ``SYSTEM_PROMPT`` until ACE-specific
 behavior is introduced; the judge prompts (``JUDGE_SYSTEM_PROMPT`` and
-``JUDGE_USER_PROMPT_TEMPLATE``) feed ``src.common.judge`` and live in the same
-YAML so prompt iteration does not require Python changes.
+``JUDGE_USER_PROMPT_TEMPLATE``) feed ``src.common.judge``. The reflector prompts
+feed ``src.agents.agent_a_ace.reflector``. All prompts live in the same YAML so
+prompt iteration does not require Python changes.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ _PROMPTS_FILE = Path(__file__).resolve().parent / "prompts.yaml"
 _SYSTEM_PROMPT_KEY = "system_prompt"
 _JUDGE_SYSTEM_PROMPT_KEY = "judge_system_prompt"
 _JUDGE_USER_PROMPT_TEMPLATE_KEY = "judge_user_prompt_template"
+_REFLECTOR_SYSTEM_PROMPT_KEY = "reflector_system_prompt"
+_REFLECTOR_USER_PROMPT_TEMPLATE_KEY = "reflector_user_prompt_template"
 
 
 class PromptDefinitionError(ValueError):
@@ -77,10 +80,17 @@ _data = _load_prompts()
 SYSTEM_PROMPT = _get_string_prompt(_data, _SYSTEM_PROMPT_KEY)
 JUDGE_SYSTEM_PROMPT = _get_string_prompt(_data, _JUDGE_SYSTEM_PROMPT_KEY)
 JUDGE_USER_PROMPT_TEMPLATE = _get_string_prompt(_data, _JUDGE_USER_PROMPT_TEMPLATE_KEY)
+REFLECTOR_SYSTEM_PROMPT = _get_string_prompt(_data, _REFLECTOR_SYSTEM_PROMPT_KEY)
+REFLECTOR_USER_PROMPT_TEMPLATE = _get_string_prompt(_data, _REFLECTOR_USER_PROMPT_TEMPLATE_KEY)
 
 logger.debug("Loaded system prompt from %s (%d chars)", _PROMPTS_FILE, len(SYSTEM_PROMPT))
 logger.debug(
     "Loaded judge prompts: system=%d chars, template=%d chars",
     len(JUDGE_SYSTEM_PROMPT),
     len(JUDGE_USER_PROMPT_TEMPLATE),
+)
+logger.debug(
+    "Loaded reflector prompts: system=%d chars, template=%d chars",
+    len(REFLECTOR_SYSTEM_PROMPT),
+    len(REFLECTOR_USER_PROMPT_TEMPLATE),
 )

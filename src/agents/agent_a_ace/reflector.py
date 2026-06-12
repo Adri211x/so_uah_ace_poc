@@ -2,21 +2,60 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Literal
+from functools import lru_cache
+from typing import Any, Literal
 
-from src.common.schemas import AceInsight, AgentResult
+from pydantic import BaseModel, Field
+from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
+
+from src.common.config import AgentSettings, get_settings
+from src.common.llm import build_model
+from src.common.prompt import REFLECTOR_SYSTEM_PROMPT, REFLECTOR_USER_PROMPT_TEMPLATE
+from src.common.schemas import AceInsight, AgentResult, Playbook
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_JUDGE_SUCCESS_THRESHOLD = 0.7
 DEFAULT_COSINE_SUCCESS_THRESHOLD = 0.5
+_REFLECTOR_TEMPERATURE = 0.0
+
+
+class ReflectorInsight(BaseModel):
+    """Structured LLM response for one ACE reflection."""
+
+    insight_text: str = Field(..., min_length=1, max_length=2000)
+
+
+@lru_cache(maxsize=4)
+def _build_reflector_agent(model_name: str) -> Agent[None, ReflectorInsight]:
+    """Build and cache the LLM-backed ACE Reflector agent.
+
+    Args:
+        model_name: LiteLLM model name used for reflection.
+
+    Returns:
+        Cached ``Agent`` producing ``ReflectorInsight``.
+    """
+    settings = get_settings()
+    return Agent(
+        model=build_model(settings, model_name=model_name),
+        output_type=ReflectorInsight,
+        system_prompt=REFLECTOR_SYSTEM_PROMPT,
+        model_settings=ModelSettings(temperature=_REFLECTOR_TEMPERATURE),
+        name="ace_reflector",
+    )
 
 
 def reflect_result(
     result: AgentResult,
     *,
     scenario: str | None = None,
+    playbook: Playbook | None = None,
+    llm_enabled: bool = True,
+    settings: AgentSettings | None = None,
     judge_success_threshold: float = DEFAULT_JUDGE_SUCCESS_THRESHOLD,
     cosine_success_threshold: float = DEFAULT_COSINE_SUCCESS_THRESHOLD,
 ) -> list[AceInsight]:
@@ -25,6 +64,10 @@ def reflect_result(
     Args:
         result: Evaluated runner output.
         scenario: Optional scenario/family label to scope the insight.
+        playbook: Current playbook, used by the LLM to avoid duplicate lessons.
+        llm_enabled: When ``True`` use the LLM Reflector and fall back to rules
+            on failure.
+        settings: Optional runtime settings; defaults to ``get_settings()``.
         judge_success_threshold: Minimum judge ``overall`` score for success.
         cosine_success_threshold: Minimum RCA cosine similarity for success.
 
@@ -38,14 +81,34 @@ def reflect_result(
         judge_success_threshold=judge_success_threshold,
         cosine_success_threshold=cosine_success_threshold,
     )
-    text = _build_insight_text(
-        result=result,
-        outcome=outcome,
-        missing_entities=missing_entities,
-        matched_entities=matched_entities,
-        judge_success_threshold=judge_success_threshold,
-        cosine_success_threshold=cosine_success_threshold,
-    )
+    text = ""
+    if llm_enabled:
+        try:
+            text = _generate_llm_insight(
+                result=result,
+                scenario=scenario,
+                outcome=outcome,
+                missing_entities=missing_entities,
+                matched_entities=matched_entities,
+                playbook=playbook,
+                settings=settings,
+            )
+        except Exception:
+            logger.warning(
+                "LLM reflector failed for sample %s; using rule-based fallback.",
+                result.sample_id,
+                exc_info=True,
+            )
+
+    if not text:
+        text = _build_rule_based_insight_text(
+            result=result,
+            outcome=outcome,
+            missing_entities=missing_entities,
+            matched_entities=matched_entities,
+            judge_success_threshold=judge_success_threshold,
+            cosine_success_threshold=cosine_success_threshold,
+        )
 
     return [
         AceInsight(
@@ -64,6 +127,9 @@ def reflect_batch(
     results: list[AgentResult],
     *,
     scenario_by_sample_id: dict[str, str] | None = None,
+    playbook: Playbook | None = None,
+    llm_enabled: bool = True,
+    settings: AgentSettings | None = None,
     judge_success_threshold: float = DEFAULT_JUDGE_SUCCESS_THRESHOLD,
     cosine_success_threshold: float = DEFAULT_COSINE_SUCCESS_THRESHOLD,
 ) -> list[AceInsight]:
@@ -72,6 +138,10 @@ def reflect_batch(
     Args:
         results: Evaluated runner outputs.
         scenario_by_sample_id: Optional lookup used to scope lessons.
+        playbook: Current playbook, included in the LLM reflection prompt.
+        llm_enabled: When ``True`` use the LLM Reflector and fall back to rules
+            on failure.
+        settings: Optional runtime settings; defaults to ``get_settings()``.
         judge_success_threshold: Minimum judge ``overall`` score for success.
         cosine_success_threshold: Minimum RCA cosine similarity for success.
 
@@ -85,6 +155,9 @@ def reflect_batch(
             reflect_result(
                 result,
                 scenario=scenario_map.get(result.sample_id),
+                playbook=playbook,
+                llm_enabled=llm_enabled,
+                settings=settings,
                 judge_success_threshold=judge_success_threshold,
                 cosine_success_threshold=cosine_success_threshold,
             )
@@ -121,9 +194,111 @@ class RuleBasedReflector:
         return reflect_result(
             result,
             scenario=scenario,
+            llm_enabled=False,
             judge_success_threshold=self._judge_success_threshold,
             cosine_success_threshold=self._cosine_success_threshold,
         )
+
+
+class LlmReflector:
+    """Facade for the LLM-backed ACE Reflector."""
+
+    def reflect(
+        self,
+        result: AgentResult,
+        *,
+        scenario: str | None = None,
+        playbook: Playbook | None = None,
+        settings: AgentSettings | None = None,
+    ) -> list[AceInsight]:
+        """Create ACE insights from one evaluated agent result using an LLM."""
+        return reflect_result(
+            result,
+            scenario=scenario,
+            playbook=playbook,
+            llm_enabled=True,
+            settings=settings,
+        )
+
+
+def _to_prompt_json(value: Any) -> str:
+    """Serialize prompt payloads as stable, readable JSON."""
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _playbook_payload(playbook: Playbook | None, *, max_entries: int = 20) -> list[dict[str, Any]]:
+    """Return a compact representation of the current playbook."""
+    if playbook is None or not playbook.entries:
+        return []
+
+    ranked_entries = sorted(
+        playbook.entries,
+        key=lambda entry: (entry.helpful_count - entry.harmful_count, entry.helpful_count),
+        reverse=True,
+    )
+    return [
+        {
+            "text": entry.text,
+            "scenario": entry.scenario,
+            "helpful_count": entry.helpful_count,
+            "harmful_count": entry.harmful_count,
+        }
+        for entry in ranked_entries[:max_entries]
+    ]
+
+
+def _format_reflector_prompt(
+    *,
+    result: AgentResult,
+    scenario: str | None,
+    outcome: Literal["success", "failure"],
+    missing_entities: list[str],
+    matched_entities: list[str],
+    playbook: Playbook | None,
+) -> str:
+    """Build the LLM Reflector user prompt."""
+    return REFLECTOR_USER_PROMPT_TEMPLATE.format(
+        scenario=scenario or "unknown",
+        outcome=outcome,
+        current_playbook=_to_prompt_json(_playbook_payload(playbook)),
+        expected_output=result.expected_output,
+        rca_output=result.rca_output,
+        golden_entities=_to_prompt_json(result.golden_entities),
+        matched_entities=_to_prompt_json(matched_entities),
+        missing_entities=_to_prompt_json(missing_entities),
+        judge_verdict=_to_prompt_json(
+            result.judge_verdict.model_dump() if result.judge_verdict is not None else None
+        ),
+        cosine_similarity=_to_prompt_json(
+            result.cosine_similarity.model_dump() if result.cosine_similarity is not None else None
+        ),
+        trajectory_steps=_to_prompt_json([step.model_dump() for step in result.trajectory_steps]),
+    )
+
+
+def _generate_llm_insight(
+    *,
+    result: AgentResult,
+    scenario: str | None,
+    outcome: Literal["success", "failure"],
+    missing_entities: list[str],
+    matched_entities: list[str],
+    playbook: Playbook | None,
+    settings: AgentSettings | None,
+) -> str:
+    """Generate one playbook lesson with the LLM Reflector."""
+    cfg = settings or get_settings()
+    user_prompt = _format_reflector_prompt(
+        result=result,
+        scenario=scenario,
+        outcome=outcome,
+        missing_entities=missing_entities,
+        matched_entities=matched_entities,
+        playbook=playbook,
+    )
+    response = _build_reflector_agent(cfg.reflector_model_name).run_sync(user_prompt)
+    output: ReflectorInsight = response.output
+    return output.insight_text.strip()
 
 
 def _missing_entities(result: AgentResult) -> list[str]:
@@ -170,7 +345,7 @@ def _cosine_success(result: AgentResult, *, threshold: float) -> bool:
     return result.cosine_similarity.rca_similarity >= threshold
 
 
-def _build_insight_text(
+def _build_rule_based_insight_text(
     *,
     result: AgentResult,
     outcome: Literal["success", "failure"],

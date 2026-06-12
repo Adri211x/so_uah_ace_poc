@@ -19,6 +19,7 @@ def run_ace_learning_loop(
     playbook_path: Path | None = None,
     *,
     scenario_by_sample_id: dict[str, str] | None = None,
+    llm_enabled: bool = True,
 ) -> Playbook:
     """Reflect evaluated results and merge lessons into the playbook.
 
@@ -26,13 +27,21 @@ def run_ace_learning_loop(
         results: Evaluated outputs from ``src.common.runner``.
         playbook_path: JSON playbook destination.
         scenario_by_sample_id: Optional sample-to-scenario lookup.
+        llm_enabled: When ``True`` use the LLM Reflector and fall back to rules
+            on failure.
 
     Returns:
         Updated playbook.
     """
     resolved_path = playbook_path or DEFAULT_PLAYBOOK_PATH
-    insights = reflect_batch(results, scenario_by_sample_id=scenario_by_sample_id)
     curator = JsonPlaybookCurator(resolved_path)
+    current_playbook = curator.load()
+    insights = reflect_batch(
+        results,
+        scenario_by_sample_id=scenario_by_sample_id,
+        playbook=current_playbook,
+        llm_enabled=llm_enabled,
+    )
     playbook = curator.curate(insights)
     logger.info("Updated ACE playbook at %s with %d entries.", resolved_path, len(playbook.entries))
     return playbook
@@ -42,10 +51,13 @@ def update_playbook_from_results(
     results: list[AgentResult],
     playbook_path: Path,
     scenario_by_sample_id: dict[str, str] | None = None,
+    *,
+    llm_enabled: bool = True,
 ) -> Playbook:
     """Backward-compatible alias for ``run_ace_learning_loop``."""
     return run_ace_learning_loop(
         results,
         playbook_path=playbook_path,
         scenario_by_sample_id=scenario_by_sample_id,
+        llm_enabled=llm_enabled,
     )
