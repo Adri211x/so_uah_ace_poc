@@ -1,8 +1,12 @@
-"""Pydantic schemas for agent inputs and runner outputs.
+"""Pydantic schemas for agent inputs, runner outputs, and ACE playbooks.
 
 ``AgentInput`` describes what you send to an agent (or validate before a run).
 ``AgentResult`` is the stable JSON shape written by ``runner.run_agent_on_training_split``.
+ACE playbook schemas describe the small contract between Reflector, Curator,
+and Generator.
 """
+
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +19,7 @@ class AgentInput(BaseModel):
 
     Attributes:
         alert_text: Monitoring alert body (primary user message to the LLM).
-        scenario: Optional dataset scenario hint (for example ``base_scenario``);
-            not all call sites pass this into ``run_sync`` yet.
+        scenario: Optional dataset scenario hint (for example ``base_scenario``).
     """
 
     alert_text: str = Field(..., min_length=1)
@@ -52,3 +55,52 @@ class AgentResult(BaseModel):
     matched_entities: list[str] | None = None
     judge_verdict: JudgeVerdict | None = None
     cosine_similarity: CosineSimilarityResult | None = None
+
+
+class AceInsight(BaseModel):
+    """A reusable lesson extracted from one evaluated agent run.
+
+    Attributes:
+        text: Playbook-ready instruction or diagnostic heuristic.
+        scenario: Optional scenario or family label that scopes the insight.
+        source_sample_id: Dataset sample that produced this lesson.
+        outcome: Whether the lesson came from a successful or failed run.
+        score: Golden-entity score from the evaluation runner.
+        matched_entities: Golden entities found in the RCA output.
+        missing_entities: Golden entities not found in the RCA output.
+    """
+
+    text: str = Field(..., min_length=1)
+    scenario: str | None = None
+    source_sample_id: str = Field(..., min_length=1)
+    outcome: Literal["success", "failure"]
+    score: int | None = None
+    matched_entities: list[str] = Field(default_factory=list)
+    missing_entities: list[str] = Field(default_factory=list)
+
+
+class PlaybookEntry(BaseModel):
+    """One curated playbook entry with deterministic counters.
+
+    Attributes:
+        id: Stable identifier derived from the normalized text.
+        text: Human-readable instruction injected into future Generator prompts.
+        scenario: Optional scenario or family label that scopes the entry.
+        helpful_count: Number of successful runs supporting this entry.
+        harmful_count: Number of failed runs motivating this entry.
+        source_sample_ids: Dataset sample ids that contributed to this entry.
+    """
+
+    id: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1)
+    scenario: str | None = None
+    helpful_count: int = Field(default=0, ge=0)
+    harmful_count: int = Field(default=0, ge=0)
+    source_sample_ids: list[str] = Field(default_factory=list)
+
+
+class Playbook(BaseModel):
+    """Versioned collection of curated ACE entries."""
+
+    version: int = Field(default=1, ge=1)
+    entries: list[PlaybookEntry] = Field(default_factory=list)
