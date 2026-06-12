@@ -1,6 +1,9 @@
 """Sanity checks that the shared RCA system prompt covers expected topics."""
 
 from src.common.prompt import (
+    ACE_CURATOR_SYSTEM_PROMPT,
+    ACE_CURATOR_USER_PROMPT_TEMPLATE,
+    ACE_GENERATOR_PLAYBOOK_PROMPT,
     JUDGE_SYSTEM_PROMPT,
     JUDGE_USER_PROMPT_TEMPLATE,
     REFLECTOR_SYSTEM_PROMPT,
@@ -58,3 +61,29 @@ def test_reflector_prompts_cover_trajectory_and_playbook_context() -> None:
     assert "SCENARIO_PLACEHOLDER" in formatted
     assert "PLAYBOOK_PLACEHOLDER" in formatted
     assert "TRAJECTORY_PLACEHOLDER" in formatted
+
+
+def test_ace_generator_prompt_requests_stable_playbook_usage() -> None:
+    """ACE Generator prompt must explain playbook usage and citation format."""
+    formatted = ACE_GENERATOR_PLAYBOOK_PROMPT.format(
+        scenario="SCENARIO_PLACEHOLDER",
+        playbook_entries="PLAYBOOK_ENTRIES_PLACEHOLDER",
+    )
+    assert "SCENARIO_PLACEHOLDER" in formatted
+    assert "PLAYBOOK_ENTRIES_PLACEHOLDER" in formatted
+    assert "<playbook_usage>" in formatted
+    assert "entry_id" in formatted
+    assert "verified evidence" in formatted
+
+
+def test_ace_curator_prompts_cover_playbook_and_candidate_insights() -> None:
+    """ACE Curator prompts should support a future LLM proposal step."""
+    assert "ACE Curator" in ACE_CURATOR_SYSTEM_PROMPT
+    assert "deterministic" in ACE_CURATOR_SYSTEM_PROMPT.lower()
+
+    formatted = ACE_CURATOR_USER_PROMPT_TEMPLATE.format(
+        current_playbook="PLAYBOOK_PLACEHOLDER",
+        candidate_insights="INSIGHTS_PLACEHOLDER",
+    )
+    assert "PLAYBOOK_PLACEHOLDER" in formatted
+    assert "INSIGHTS_PLACEHOLDER" in formatted

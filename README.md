@@ -51,6 +51,9 @@ so_ua_ace_poc/
 |
 |-- src/common/                    # Shared evaluation pipeline
 |   |-- runner.py                  #   Runs agents over a split, writes results JSON
+|   |-- schemas.py                 #   Shared Pydantic contracts for inputs, outputs, and ACE playbooks
+|   |-- prompt.py                  #   Loads shared and ACE-specific prompts
+|   |-- prompts.yaml               #   Baseline, judge, Reflector, Generator, and Curator prompts
 |   |-- scoring.py                 #   Literal golden-entity scoring (Levenshtein)
 |   |-- judge.py                   #   LLM-as-a-judge scorer
 |   |-- cosine_similarity.py       #   Embedding-based cosine similarity scorer
@@ -69,7 +72,12 @@ so_ua_ace_poc/
 ## Evaluation pipeline
 
 The runner executes an RCA agent over the `test` rows of a split file and writes
-one result per sample. Each result combines three complementary scorers:
+one result per sample. The runner also forwards scenario context
+(`base_scenario` or `scenario_id`) to agents whose `run_sync` method accepts a
+`scenario` argument. Agent A uses that context to select scenario-scoped ACE
+playbook entries.
+
+Each result combines three complementary scorers:
 
 | Scorer | Field(s) in results | What it measures |
 |--------|---------------------|------------------|
@@ -82,6 +90,12 @@ The cosine scorer uses `sentence-transformers/paraphrase-multilingual-MiniLM-L12
 RCA-vs-expected similarity plus per-golden-entity similarities and aggregates.
 All scorers degrade gracefully: a failure stores a null verdict instead of
 aborting the run.
+
+The output JSON also includes `trajectory_steps`: an observable execution trace
+captured from pydantic-ai messages when available. The trajectory starts with
+the alert, includes tool calls/tool returns/model responses exposed by the SDK,
+and ends with the final RCA. This gives the ACE Reflector more context than the
+final answer alone.
 
 ```bash
 # Run an agent over a split (judge and cosine enabled by default)
@@ -99,6 +113,59 @@ uv run python -m src.common.cosine_backfill \
     --input tmp/test_3_results.json \
     --output tmp/test_3_results.json
 ```
+
+## ACE learning loop
+
+Agent A implements a local ACE learning loop inspired by the paper:
+
+| Component | Module | Role |
+|-----------|--------|------|
+| Generator | `src/agents/agent_a_ace/agent.py` and `playbook_agent.py` | Runs the RCA agent. It shares the baseline system prompt, then injects ACE playbook guidance only when entries exist. |
+| Reflector | `src/agents/agent_a_ace/reflector.py` | Reads evaluated results, ground truth, scores, current playbook, and `trajectory_steps` to produce reusable `AceInsight` lessons. Uses an LLM by default and falls back to the rule-based Reflector on failure. |
+| Curator | `src/agents/agent_a_ace/curator.py` | Deduplicates insights deterministically, updates helpful/harmful counters, and persists the JSON playbook. |
+| Loop | `src/agents/agent_a_ace/loop.py` | Connects Reflector and Curator through `run_ace_learning_loop()`. |
+
+When running the CLI with `--agent agent_a_ace`, ACE learning is enabled by
+default. After the runner writes the results JSON, it updates the playbook using
+the evaluated results. The default playbook path is `tmp/playbook.json`; set
+`ACE_PLAYBOOK_PATH` to override it.
+
+```bash
+# First run: evaluate Agent A and create/update the playbook
+uv run python -m src.common.runner \
+    --agent agent_a_ace \
+    --training-file tmp/test_3.json \
+    --output-file tmp/test_3_results.json \
+    --dataset-dir data/event_system/data/datasets
+
+# Second run: Agent A receives relevant playbook entries in its Generator prompt
+uv run python -m src.common.runner \
+    --agent agent_a_ace \
+    --training-file tmp/test_3.json \
+    --output-file tmp/test_3_results_2.json \
+    --dataset-dir data/event_system/data/datasets
+
+# Disable ACE learning for a comparison run
+uv run python -m src.common.runner ... --no-ace-learning
+```
+
+The Generator prompt asks Agent A to treat playbook entries as diagnostic
+guidance, verify them against current tool evidence, and append a stable
+`<playbook_usage>` section identifying which entry IDs influenced the RCA. If no
+entry was useful, the section contains an empty JSON array.
+
+The ACE prompts live in `src/common/prompts.yaml`:
+
+| Prompt key | Used by | Purpose |
+|------------|---------|---------|
+| `reflector_system_prompt` | Reflector | Defines how to extract a reusable lesson from an evaluated trajectory. |
+| `reflector_user_prompt_template` | Reflector | Sends trajectory, result, ground truth, scores, and current playbook to the LLM. |
+| `ace_generator_playbook_prompt` | Generator | Explains how to use the playbook and how to report playbook usage. |
+| `ace_curator_system_prompt` | Curator | Defines the optional LLM Curator proposal behavior. |
+| `ace_curator_user_prompt_template` | Curator | Sends current playbook entries and candidate insights for optional bullet refinement. |
+
+Set `REFLECTOR_MODEL_NAME` to use a different LiteLLM model for the Reflector;
+otherwise it defaults to the same model family used by the rest of the app.
 
 ## Common commands
 

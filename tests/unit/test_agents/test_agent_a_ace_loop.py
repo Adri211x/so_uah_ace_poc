@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from src.agents.agent_a_ace.curator import (
     JsonPlaybookCurator,
+    build_curator_prompt,
     build_generator_prompt,
     render_playbook_context,
     select_playbook_entries,
@@ -323,12 +324,47 @@ def test_generator_prompt_selects_scenario_scoped_playbook_context() -> None:
 
     assert [entry.id for entry in selected] == ["entry-1"]
     assert "Learned RCA playbook" in prompt
+    assert "[entry-1]" in prompt
+    assert "<playbook_usage>" in prompt
     assert "Check Service targetPort" in prompt
     assert "CrashLoopBackOff" not in prompt
     assert "ALERT: service unavailable" in prompt
     assert (
         render_playbook_context(Playbook()) == "No learned RCA playbook entries are available yet."
     )
+
+
+def test_curator_prompt_includes_current_playbook_and_candidate_insights() -> None:
+    """Curator prompt should be ready for an optional LLM proposal step."""
+    playbook = Playbook(
+        entries=[
+            PlaybookEntry(
+                id="entry-1",
+                text="Check Service targetPort against the container port.",
+                scenario="routing",
+                helpful_count=2,
+            )
+        ]
+    )
+    insights = [
+        AceInsight(
+            text="Verify Service selector mismatch before final RCA.",
+            scenario="routing",
+            source_sample_id="sample-1",
+            outcome="failure",
+            score=1,
+            matched_entities=["service"],
+            missing_entities=["selector mismatch"],
+        )
+    ]
+
+    prompt = build_curator_prompt(playbook, insights)
+
+    assert "Current playbook" in prompt
+    assert "Candidate Reflector insights" in prompt
+    assert "entry-1" in prompt
+    assert "Verify Service selector mismatch" in prompt
+    assert "selector mismatch" in prompt
 
 
 def test_playbook_injecting_agent_wraps_prompt_with_curated_context(tmp_path: Path) -> None:

@@ -1,10 +1,11 @@
-"""Shared prompts for RCA agents, evaluator, and ACE Reflector.
+"""Shared prompts for RCA agents, evaluator, and ACE components.
 
 Agent A and Agent B must use the same ``SYSTEM_PROMPT`` until ACE-specific
 behavior is introduced; the judge prompts (``JUDGE_SYSTEM_PROMPT`` and
 ``JUDGE_USER_PROMPT_TEMPLATE``) feed ``src.common.judge``. The reflector prompts
-feed ``src.agents.agent_a_ace.reflector``. All prompts live in the same YAML so
-prompt iteration does not require Python changes.
+feed ``src.agents.agent_a_ace.reflector``. ACE Generator and Curator prompt
+fragments live here too. All prompts live in the same YAML so prompt iteration
+does not require Python changes.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ _JUDGE_SYSTEM_PROMPT_KEY = "judge_system_prompt"
 _JUDGE_USER_PROMPT_TEMPLATE_KEY = "judge_user_prompt_template"
 _REFLECTOR_SYSTEM_PROMPT_KEY = "reflector_system_prompt"
 _REFLECTOR_USER_PROMPT_TEMPLATE_KEY = "reflector_user_prompt_template"
+_ACE_GENERATOR_PLAYBOOK_PROMPT_KEY = "ace_generator_playbook_prompt"
+_ACE_CURATOR_SYSTEM_PROMPT_KEY = "ace_curator_system_prompt"
+_ACE_CURATOR_USER_PROMPT_TEMPLATE_KEY = "ace_curator_user_prompt_template"
 
 
 class PromptDefinitionError(ValueError):
@@ -82,6 +86,12 @@ JUDGE_SYSTEM_PROMPT = _get_string_prompt(_data, _JUDGE_SYSTEM_PROMPT_KEY)
 JUDGE_USER_PROMPT_TEMPLATE = _get_string_prompt(_data, _JUDGE_USER_PROMPT_TEMPLATE_KEY)
 REFLECTOR_SYSTEM_PROMPT = _get_string_prompt(_data, _REFLECTOR_SYSTEM_PROMPT_KEY)
 REFLECTOR_USER_PROMPT_TEMPLATE = _get_string_prompt(_data, _REFLECTOR_USER_PROMPT_TEMPLATE_KEY)
+ACE_GENERATOR_PLAYBOOK_PROMPT = _get_string_prompt(_data, _ACE_GENERATOR_PLAYBOOK_PROMPT_KEY)
+ACE_CURATOR_SYSTEM_PROMPT = _get_string_prompt(_data, _ACE_CURATOR_SYSTEM_PROMPT_KEY)
+ACE_CURATOR_USER_PROMPT_TEMPLATE = _get_string_prompt(
+    _data,
+    _ACE_CURATOR_USER_PROMPT_TEMPLATE_KEY,
+)
 
 logger.debug("Loaded system prompt from %s (%d chars)", _PROMPTS_FILE, len(SYSTEM_PROMPT))
 logger.debug(
@@ -93,4 +103,10 @@ logger.debug(
     "Loaded reflector prompts: system=%d chars, template=%d chars",
     len(REFLECTOR_SYSTEM_PROMPT),
     len(REFLECTOR_USER_PROMPT_TEMPLATE),
+)
+logger.debug(
+    "Loaded ACE prompts: generator=%d chars, curator_system=%d chars, curator_template=%d chars",
+    len(ACE_GENERATOR_PLAYBOOK_PROMPT),
+    len(ACE_CURATOR_SYSTEM_PROMPT),
+    len(ACE_CURATOR_USER_PROMPT_TEMPLATE),
 )

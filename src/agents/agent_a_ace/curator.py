@@ -13,6 +13,7 @@ import logging
 import re
 from pathlib import Path
 
+from src.common.prompt import ACE_CURATOR_USER_PROMPT_TEMPLATE, ACE_GENERATOR_PLAYBOOK_PROMPT
 from src.common.schemas import AceInsight, Playbook, PlaybookEntry
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,11 @@ def render_playbook_context(
 
     lines = ["Learned RCA playbook:"]
     for entry in selected_entries:
-        lines.append(f"- {entry.text}")
+        scenario_label = entry.scenario or "global"
+        lines.append(
+            f"- [{entry.id}] scenario={scenario_label}; "
+            f"helpful={entry.helpful_count}; harmful={entry.harmful_count}; {entry.text}"
+        )
     return "\n".join(lines)
 
 
@@ -164,7 +169,60 @@ def build_generator_prompt(
     if playbook is None or not playbook.entries:
         return alert_text
 
-    return f"{render_playbook_context(playbook, scenario=scenario)}\n\nAlert:\n{alert_text}"
+    selected_entries = select_playbook_entries(playbook, scenario=scenario)
+    playbook_entries = render_playbook_context(playbook, scenario=scenario)
+    if not selected_entries:
+        return alert_text
+
+    generator_instructions = ACE_GENERATOR_PLAYBOOK_PROMPT.format(
+        scenario=scenario or "unknown",
+        playbook_entries=playbook_entries,
+    )
+    return f"{generator_instructions}\n\nAlert:\n{alert_text}"
+
+
+def build_curator_prompt(
+    playbook: Playbook,
+    insights: list[AceInsight],
+) -> str:
+    """Build the optional LLM Curator prompt.
+
+    The deterministic curator still performs the actual merge. This prompt is
+    used only if a later LLM proposal step is enabled.
+
+    Args:
+        playbook: Current curated playbook.
+        insights: Candidate insights produced by the Reflector.
+
+    Returns:
+        User prompt for an optional Curator LLM.
+    """
+    current_playbook = [
+        {
+            "id": entry.id,
+            "text": entry.text,
+            "scenario": entry.scenario,
+            "helpful_count": entry.helpful_count,
+            "harmful_count": entry.harmful_count,
+        }
+        for entry in playbook.entries
+    ]
+    candidate_insights = [
+        {
+            "text": insight.text,
+            "scenario": insight.scenario,
+            "outcome": insight.outcome,
+            "source_sample_id": insight.source_sample_id,
+            "score": insight.score,
+            "matched_entities": insight.matched_entities,
+            "missing_entities": insight.missing_entities,
+        }
+        for insight in insights
+    ]
+    return ACE_CURATOR_USER_PROMPT_TEMPLATE.format(
+        current_playbook=json.dumps(current_playbook, indent=2, ensure_ascii=False),
+        candidate_insights=json.dumps(candidate_insights, indent=2, ensure_ascii=False),
+    )
 
 
 def _entry_id(text: str, scenario: str | None) -> str:
