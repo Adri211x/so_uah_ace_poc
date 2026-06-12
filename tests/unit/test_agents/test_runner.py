@@ -52,6 +52,51 @@ class PromptRecordingAgent:
         return "The alert needs more investigation."
 
 
+class MessageResponseAgent:
+    """Stub agent returning a pydantic-ai-like response with message parts."""
+
+    def run_sync(self, user_prompt: str) -> object:
+        output = "Root cause: service targetPort mismatch."
+        return SimpleNamespace(
+            output=output,
+            all_messages=lambda: [
+                SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            part_kind="user-prompt",
+                            content=user_prompt,
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    usage=SimpleNamespace(request_tokens=12, response_tokens=4),
+                    parts=[
+                        SimpleNamespace(
+                            part_kind="tool-call",
+                            tool_name="kubectl_get_service",
+                            args={"namespace": "prod", "service": "api"},
+                            tool_call_id="call-1",
+                        )
+                    ],
+                ),
+                SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            part_kind="tool-return",
+                            tool_name="kubectl_get_service",
+                            content={"targetPort": 8080, "containerPort": 8000},
+                            tool_call_id="call-1",
+                        )
+                    ]
+                ),
+                SimpleNamespace(
+                    usage=SimpleNamespace(request_tokens=6, response_tokens=9),
+                    parts=[SimpleNamespace(part_kind="text", content=output)],
+                ),
+            ],
+        )
+
+
 def _write_json(path: Path, payload: object) -> None:
     """Write ``payload`` as UTF-8 JSON, creating parent directories if needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -271,6 +316,75 @@ def test_runner_passes_scenario_to_agents_that_accept_it(tmp_path: Path) -> None
 
     assert agent.calls == [("ALERT test", "kubernetes-data-pipeline")]
     assert results[0].rca_output == "RCA for kubernetes-data-pipeline: ALERT test"
+
+
+def test_runner_persists_observable_agent_trajectory(tmp_path: Path) -> None:
+    """Runner should save alert, tool activity, observations, and final RCA."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "scenario_id": "kubernetes-service-routing",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT service routing"},
+            "expected_output": "Service targetPort mismatch.",
+            "golden_entities": ["service targetPort"],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=MessageResponseAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    steps = results[0].trajectory_steps
+    assert [step.action_type for step in steps] == [
+        "alert",
+        "user_prompt",
+        "tool_call",
+        "tool_return",
+        "model_response",
+        "final_answer",
+    ]
+    assert steps[0].output_data["alert_text"] == "ALERT service routing"
+    assert steps[2].input_data == {
+        "tool_name": "kubectl_get_service",
+        "args": {"namespace": "prod", "service": "api"},
+    }
+    assert steps[2].output_data == {"tool_call_id": "call-1"}
+    assert steps[2].tokens_in == 12
+    assert steps[2].tokens_out == 4
+    assert steps[3].output_data["content"]["targetPort"] == 8080
+    assert steps[-1].output_data["rca_output"] == "Root cause: service targetPort mismatch."
+
+    persisted = json.loads(output_file.read_text(encoding="utf-8"))
+    persisted_steps = persisted[0]["trajectory_steps"]
+    assert [step["action_type"] for step in persisted_steps] == [
+        "alert",
+        "user_prompt",
+        "tool_call",
+        "tool_return",
+        "model_response",
+        "final_answer",
+    ]
+    assert persisted_steps[3]["output_data"]["content"]["containerPort"] == 8000
 
 
 def test_runner_updates_ace_playbook_when_learning_is_enabled(tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ ACE playbook schemas describe the small contract between Reflector, Curator,
 and Generator.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,31 @@ class AgentInput(BaseModel):
 
     alert_text: str = Field(..., min_length=1)
     scenario: str | None = None
+
+
+class TrajectoryStep(BaseModel):
+    """One observable step in an agent execution trajectory.
+
+    Attributes:
+        step_order: One-based order inside the execution.
+        component: ACE component that produced the step.
+        action_type: Observable action type, for example ``alert``,
+            ``tool_call``, ``tool_return``, or ``final_answer``.
+        input_data: JSON-compatible action inputs.
+        output_data: JSON-compatible action outputs or observations.
+        duration_ms: Optional duration in milliseconds.
+        tokens_in: Optional input token count associated with the step.
+        tokens_out: Optional output token count associated with the step.
+    """
+
+    step_order: int = Field(..., ge=1)
+    component: Literal["generator", "reflector", "curator"]
+    action_type: str = Field(..., min_length=1)
+    input_data: dict[str, Any] = Field(default_factory=dict)
+    output_data: dict[str, Any] = Field(default_factory=dict)
+    duration_ms: int | None = Field(default=None, ge=0)
+    tokens_in: int | None = Field(default=None, ge=0)
+    tokens_out: int | None = Field(default=None, ge=0)
 
 
 class AgentResult(BaseModel):
@@ -45,6 +70,8 @@ class AgentResult(BaseModel):
             ``rca_output`` / ``expected_output`` and between each golden entity
             and ``rca_output``. ``None`` when the cosine evaluator was disabled
             (``--no-cosine``) or when it raised an error during the run.
+        trajectory_steps: Observable Generator execution steps captured from
+            pydantic-ai messages when available.
     """
 
     rca_output: str = Field(..., min_length=1)
@@ -55,6 +82,7 @@ class AgentResult(BaseModel):
     matched_entities: list[str] | None = None
     judge_verdict: JudgeVerdict | None = None
     cosine_similarity: CosineSimilarityResult | None = None
+    trajectory_steps: list[TrajectoryStep] = Field(default_factory=list)
 
 
 class AceInsight(BaseModel):

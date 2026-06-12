@@ -24,7 +24,7 @@ from typing import Any, Protocol
 
 from src.common.cosine_similarity import CosineSimilarityResult, compute_cosine_scores
 from src.common.judge import JudgeVerdict, judge_rca
-from src.common.schemas import AgentInput, AgentResult
+from src.common.schemas import AgentInput, AgentResult, TrajectoryStep
 from src.common.scoring import score_golden_entities
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,252 @@ def _extract_agent_output(agent_response: Any) -> str:
     """
     output = getattr(agent_response, "output", agent_response)
     return str(output).strip()
+
+
+def _jsonable(value: Any) -> Any:
+    """Convert unknown SDK objects into JSON-compatible data."""
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+
+    if isinstance(value, Path):
+        return str(value)
+
+    if hasattr(value, "model_dump"):
+        try:
+            return _jsonable(value.model_dump(mode="json"))
+        except TypeError:
+            return _jsonable(value.model_dump())
+
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+
+    if isinstance(value, list | tuple | set):
+        return [_jsonable(item) for item in value]
+
+    if hasattr(value, "__dict__"):
+        return {
+            str(key): _jsonable(item)
+            for key, item in vars(value).items()
+            if not key.startswith("_")
+        }
+
+    return str(value)
+
+
+def _read_field(source: Any, names: tuple[str, ...], default: Any = None) -> Any:
+    """Read the first available field or zero-argument method from an object."""
+    for name in names:
+        if isinstance(source, dict) and name in source:
+            return source[name]
+
+        if not isinstance(source, dict) and hasattr(source, name):
+            value = getattr(source, name)
+            if callable(value):
+                try:
+                    return value()
+                except TypeError:
+                    continue
+            return value
+
+    return default
+
+
+def _read_int(source: Any, names: tuple[str, ...]) -> int | None:
+    """Read an optional integer field from an object."""
+    value = _read_field(source, names)
+    if value is None:
+        return None
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_usage(message: Any) -> tuple[int | None, int | None]:
+    """Extract input/output token counts from a pydantic-ai message when present."""
+    usage = _read_field(message, ("usage",))
+    if usage is None:
+        return None, None
+
+    tokens_in = _read_int(
+        usage,
+        ("input_tokens", "request_tokens", "prompt_tokens", "tokens_in"),
+    )
+    tokens_out = _read_int(
+        usage,
+        ("output_tokens", "response_tokens", "completion_tokens", "tokens_out"),
+    )
+    return tokens_in, tokens_out
+
+
+def _collect_response_messages(agent_response: Any) -> list[Any]:
+    """Return pydantic-ai messages from a run response if the SDK exposes them."""
+    for field_name in ("all_messages", "new_messages", "messages"):
+        messages = _read_field(agent_response, (field_name,))
+        if isinstance(messages, list | tuple):
+            return list(messages)
+
+    return []
+
+
+def _message_parts(message: Any) -> list[Any]:
+    """Return message parts from a pydantic-ai message-like object."""
+    parts = _read_field(message, ("parts",))
+    if isinstance(parts, list | tuple):
+        return list(parts)
+    return []
+
+
+def _part_kind(part: Any) -> str:
+    """Return a normalized pydantic-ai message part kind."""
+    raw_kind = _read_field(part, ("part_kind", "type", "kind"))
+    if raw_kind is None:
+        raw_kind = part.__class__.__name__
+    return str(raw_kind).replace("-", "_").lower()
+
+
+def _trajectory_event_from_part(
+    part: Any,
+    message: Any,
+) -> tuple[str, dict[str, Any], dict[str, Any], int | None, int | None]:
+    """Convert one pydantic-ai message part into a trajectory event."""
+    kind = _part_kind(part)
+    tokens_in, tokens_out = _extract_usage(message)
+
+    if "system_prompt" in kind or "systemprompt" in kind:
+        return (
+            "system_prompt",
+            {},
+            {"content": _jsonable(_read_field(part, ("content", "text"), ""))},
+            tokens_in,
+            tokens_out,
+        )
+
+    if "user_prompt" in kind or "userprompt" in kind:
+        return (
+            "user_prompt",
+            {"content": _jsonable(_read_field(part, ("content", "text"), ""))},
+            {},
+            tokens_in,
+            tokens_out,
+        )
+
+    if "tool_call" in kind or "toolcall" in kind:
+        tool_call_id = _read_field(part, ("tool_call_id", "id", "call_id"))
+        output_data = {}
+        if tool_call_id is not None:
+            output_data["tool_call_id"] = _jsonable(tool_call_id)
+
+        return (
+            "tool_call",
+            {
+                "tool_name": _jsonable(_read_field(part, ("tool_name", "name"), "")),
+                "args": _jsonable(
+                    _read_field(part, ("args", "args_as_dict", "args_as_json_str"), {})
+                ),
+            },
+            output_data,
+            tokens_in,
+            tokens_out,
+        )
+
+    if "tool_return" in kind or "toolreturn" in kind:
+        tool_call_id = _read_field(part, ("tool_call_id", "id", "call_id"))
+        input_data = {"tool_name": _jsonable(_read_field(part, ("tool_name", "name"), ""))}
+        if tool_call_id is not None:
+            input_data["tool_call_id"] = _jsonable(tool_call_id)
+
+        return (
+            "tool_return",
+            input_data,
+            {"content": _jsonable(_read_field(part, ("content", "output", "return_value"), ""))},
+            tokens_in,
+            tokens_out,
+        )
+
+    if "retry_prompt" in kind or "retryprompt" in kind:
+        return (
+            "retry_prompt",
+            {"content": _jsonable(_read_field(part, ("content", "text"), ""))},
+            {},
+            tokens_in,
+            tokens_out,
+        )
+
+    if "text" in kind:
+        return (
+            "model_response",
+            {},
+            {"content": _jsonable(_read_field(part, ("content", "text"), ""))},
+            tokens_in,
+            tokens_out,
+        )
+
+    if "reasoning" in kind or "thinking" in kind:
+        return (
+            "reasoning",
+            {},
+            {"content": _jsonable(_read_field(part, ("content", "text"), ""))},
+            tokens_in,
+            tokens_out,
+        )
+
+    return (
+        "message_part",
+        {"part_kind": kind},
+        {"data": _jsonable(part)},
+        tokens_in,
+        tokens_out,
+    )
+
+
+def _extract_trajectory_steps(
+    agent_input: AgentInput,
+    agent_response: Any,
+    rca_output: str,
+) -> list[TrajectoryStep]:
+    """Build observable Generator trajectory steps for one agent execution."""
+    steps = [
+        TrajectoryStep(
+            step_order=1,
+            component="generator",
+            action_type="alert",
+            input_data={"scenario": agent_input.scenario},
+            output_data={"alert_text": agent_input.alert_text},
+        )
+    ]
+
+    for message in _collect_response_messages(agent_response):
+        for part in _message_parts(message):
+            (
+                action_type,
+                input_data,
+                output_data,
+                tokens_in,
+                tokens_out,
+            ) = _trajectory_event_from_part(part, message)
+            steps.append(
+                TrajectoryStep(
+                    step_order=len(steps) + 1,
+                    component="generator",
+                    action_type=action_type,
+                    input_data=input_data,
+                    output_data=output_data,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                )
+            )
+
+    steps.append(
+        TrajectoryStep(
+            step_order=len(steps) + 1,
+            component="generator",
+            action_type="final_answer",
+            output_data={"rca_output": rca_output},
+        )
+    )
+    return steps
 
 
 def _run_agent(agent: SyncAgent, agent_input: AgentInput) -> Any:
@@ -322,6 +568,11 @@ def run_agent_on_training_split(
         agent_response = _run_agent(agent, agent_input)
 
         rca_output = _extract_agent_output(agent_response)
+        trajectory_steps = _extract_trajectory_steps(
+            agent_input=agent_input,
+            agent_response=agent_response,
+            rca_output=rca_output,
+        )
         expected_output = sample.get("expected_output", "")
         golden_entities = sample.get("golden_entities", [])
         scoring = score_golden_entities(rca_output, golden_entities)
@@ -351,6 +602,7 @@ def run_agent_on_training_split(
                 matched_entities=scoring["matched"],
                 judge_verdict=judge_verdict,
                 cosine_similarity=cosine_similarity,
+                trajectory_steps=trajectory_steps,
             )
         )
 

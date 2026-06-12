@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.common.judge import JudgeVerdict
-from src.common.schemas import AgentInput, AgentResult
+from src.common.schemas import AgentInput, AgentResult, TrajectoryStep
 
 
 def test_agent_input_accepts_alert_and_optional_scenario() -> None:
@@ -59,3 +59,28 @@ def test_agent_result_round_trips_judge_verdict() -> None:
     assert result.judge_verdict is not None
     assert result.judge_verdict.overall == pytest.approx(0.83)
     assert result.model_dump()["judge_verdict"]["judge_model"] == "gpt-4o-mini"
+
+
+def test_agent_result_round_trips_trajectory_steps() -> None:
+    """``AgentResult`` should persist observable agent trajectory steps."""
+    result = AgentResult(
+        rca_output="config_error: targetPort mismatch",
+        sample_id="sample-1",
+        expected_output="config_error: targetPort mismatch",
+        golden_entities=["config_error"],
+        trajectory_steps=[
+            TrajectoryStep(
+                step_order=1,
+                component="generator",
+                action_type="tool_call",
+                input_data={"tool_name": "kubectl_get_service"},
+                output_data={"tool_call_id": "call-1"},
+                tokens_in=10,
+                tokens_out=2,
+            )
+        ],
+    )
+
+    dumped = result.model_dump()
+    assert dumped["trajectory_steps"][0]["action_type"] == "tool_call"
+    assert dumped["trajectory_steps"][0]["input_data"]["tool_name"] == "kubectl_get_service"
