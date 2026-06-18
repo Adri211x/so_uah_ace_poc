@@ -11,6 +11,94 @@ ace (database)
   |-- contexts.*       Evolving playbook with versioned insights (pgvector)
 ```
 
+## Local Docker Compose
+
+Use Docker Compose for local development when you need the same PostgreSQL and
+pgvector baseline without a Kubernetes cluster.
+
+### Prerequisites
+
+- Docker Engine with Docker Compose v2 available on the command line
+- A local `.env` file copied from `.env.example`
+
+```bash
+cp .env.example .env
+```
+
+The local compose service uses `POSTGRES_DB=postgres` because
+`deployments/ace-database/files/init_databases.sql` creates the application
+database named `ace`. If you set `POSTGRES_DB=ace`, the init script will try to
+create a database that already exists.
+
+### Start
+
+```bash
+docker compose up -d postgres
+```
+
+On first startup, the container initializes PostgreSQL, creates the `ace`
+database, enables the `vector` extension, and creates the `cases`, `runs`, and
+`contexts` schemas.
+
+### Check Status
+
+```bash
+docker compose ps
+docker compose logs -f postgres
+```
+
+The service is ready when the healthcheck is `healthy` and the logs show that
+PostgreSQL is ready to accept connections.
+
+### Connect
+
+From the host:
+
+```bash
+psql "postgresql://ace-admin:ace-password@localhost:5432/ace"
+```
+
+Or through the container:
+
+```bash
+docker compose exec postgres psql -U ace-admin -d ace
+```
+
+### Verify
+
+```sql
+SELECT extversion FROM pg_extension WHERE extname = 'vector';
+
+SELECT schema_name
+FROM information_schema.schemata
+WHERE schema_name IN ('cases', 'runs', 'contexts')
+ORDER BY schema_name;
+```
+
+Expected result:
+
+- `vector` extension is installed
+- `cases`, `runs`, and `contexts` schemas exist
+
+### Stop
+
+```bash
+docker compose down
+```
+
+This stops the container but keeps the `ace_postgres_data` volume.
+
+### Reset Local Data
+
+Initialization scripts under `/docker-entrypoint-initdb.d` only run when the
+PostgreSQL data directory is empty. If you change the init SQL and want to
+recreate the database from scratch, remove the volume:
+
+```bash
+docker compose down -v
+docker compose up -d postgres
+```
+
 ## Deployment
 
 ### Prerequisites

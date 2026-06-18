@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    container_name: ace-postgres
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ace-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ace-password}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ace_postgres_data:/var/lib/postgresql/data
+      - ./deployments/ace-database/files/init_databases.sql:/docker-entrypoint-initdb.d/001-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ace_postgres_data:
