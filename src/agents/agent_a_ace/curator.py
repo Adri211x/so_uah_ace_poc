@@ -1,6 +1,6 @@
 """ACE Curator skeleton backed by a local JSON playbook.
 
-The production version is expected to use the ``contexts`` database schema and
+The production version is expected to use the contexts database schema and
 pgvector. For now this keeps the same merge semantics locally: candidate
 insights are normalized, deduplicated, counted, and persisted as a playbook.
 """
@@ -13,6 +13,7 @@ import logging
 import re
 from pathlib import Path
 
+from src.agents.agent_a_ace.ablations import PlaybookScope
 from src.common.schemas import AceInsight, Playbook, PlaybookEntry
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class JsonPlaybookCurator:
         return Playbook.model_validate(payload)
 
     def save(self, playbook: Playbook) -> None:
-        """Persist ``playbook`` as formatted UTF-8 JSON."""
+        """Persist playbook as formatted UTF-8 JSON."""
         self._playbook_path.parent.mkdir(parents=True, exist_ok=True)
         with self._playbook_path.open("w", encoding="utf-8") as handle:
             json.dump(playbook.model_dump(), handle, indent=2, ensure_ascii=False)
@@ -87,6 +88,7 @@ def select_playbook_entries(
     *,
     scenario: str | None = None,
     max_entries: int = 20,
+    playbook_scope: PlaybookScope = "fallback",
 ) -> list[PlaybookEntry]:
     """Select and rank playbook entries for prompt injection.
 
@@ -94,12 +96,15 @@ def select_playbook_entries(
         playbook: Curated playbook.
         scenario: Optional scenario used to prefer scoped entries.
         max_entries: Maximum number of entries to include.
+        playbook_scope: Selection behavior for scenario-scoped entries.
 
     Returns:
         Ranked playbook entries.
     """
     entries = list(playbook.entries)
-    if scenario:
+    if playbook_scope == "strict":
+        entries = [entry for entry in entries if entry.scenario == scenario]
+    elif scenario:
         scoped_entries = [entry for entry in entries if entry.scenario == scenario]
         if scoped_entries:
             entries = scoped_entries
@@ -117,6 +122,7 @@ def render_playbook_context(
     *,
     scenario: str | None = None,
     max_entries: int = 20,
+    playbook_scope: PlaybookScope = "fallback",
 ) -> str:
     """Render a playbook into prompt context for the Generator.
 
@@ -124,6 +130,7 @@ def render_playbook_context(
         playbook: Curated playbook.
         scenario: Optional scenario used to prefer scoped entries.
         max_entries: Maximum number of entries to include.
+        playbook_scope: Selection behavior for scenario-scoped entries.
 
     Returns:
         Plain text block suitable for appending to an agent prompt.
@@ -135,6 +142,7 @@ def render_playbook_context(
         playbook,
         scenario=scenario,
         max_entries=max_entries,
+        playbook_scope=playbook_scope,
     )
     if not selected_entries:
         return "No learned RCA playbook entries are available yet."
@@ -150,6 +158,7 @@ def build_generator_prompt(
     playbook: Playbook | None = None,
     *,
     scenario: str | None = None,
+    playbook_scope: PlaybookScope = "fallback",
 ) -> str:
     """Build the Agent A user prompt with optional ACE playbook context.
 
@@ -157,6 +166,7 @@ def build_generator_prompt(
         alert_text: Monitoring alert sent to the RCA agent.
         playbook: Optional curated playbook.
         scenario: Optional scenario used to prefer scoped entries.
+        playbook_scope: Selection behavior for scenario-scoped entries.
 
     Returns:
         User prompt for the Generator role.
@@ -164,12 +174,20 @@ def build_generator_prompt(
     if playbook is None or not playbook.entries:
         return alert_text
 
-    return f"{render_playbook_context(playbook, scenario=scenario)}\n\nAlert:\n{alert_text}"
+    context = render_playbook_context(
+        playbook,
+        scenario=scenario,
+        playbook_scope=playbook_scope,
+    )
+    if context == "No learned RCA playbook entries are available yet.":
+        return alert_text
+    return f"{context}\n\nAlert:\n{alert_text}"
 
 
 def _entry_id(text: str, scenario: str | None) -> str:
     """Create a stable short id for a playbook entry."""
-    normalized = f"{scenario or '*'}::{_normalize_text(text)}"
+    default_scenario = scenario or "*"
+    normalized = f"{default_scenario}::{_normalize_text(text)}"
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 

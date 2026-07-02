@@ -372,3 +372,102 @@ def test_runner_keeps_running_when_cosine_raises(tmp_path: Path) -> None:
     assert len(results) == 1
     assert results[0].cosine_similarity is None
     assert output_file.exists()
+
+
+class ScenarioRecordingAgent:
+    """Stub that records scenario-aware runner calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def run_sync(self, user_prompt: str, *, scenario: str | None = None) -> str:
+        self.calls.append((user_prompt, scenario))
+        return "RCA includes broker-service evidence."
+
+
+def test_runner_forwards_scenario_to_agents_that_accept_it(tmp_path: Path) -> None:
+    """Scenario-aware agents should receive the split row scenario."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "base_scenario": "kubernetes-data-pipeline",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "broker-service evidence",
+            "golden_entities": ["broker-service"],
+        },
+    )
+
+    agent = ScenarioRecordingAgent()
+    results = run_agent_on_training_split(
+        agent=agent,
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert len(results) == 1
+    assert agent.calls == [("ALERT test", "kubernetes-data-pipeline")]
+
+
+def test_runner_can_evaluate_non_test_partition(tmp_path: Path) -> None:
+    """Experiment warmup should be able to run over train rows."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "train_results.json"
+
+    _write_json(
+        training_file,
+        [
+            {"id": "sample-train", "file": "train_case.json", "split": "train"},
+            {"id": "sample-test", "file": "test_case.json", "split": "test"},
+        ],
+    )
+    _write_json(
+        dataset_dir / "train_case.json",
+        {
+            "id": "sample-train",
+            "input": {"alert_text": "ALERT train"},
+            "expected_output": "train evidence",
+            "golden_entities": ["train"],
+        },
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "test evidence",
+            "golden_entities": ["test"],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        partition="train",
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-train"
+    assert "ALERT train" in results[0].rca_output

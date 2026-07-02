@@ -16,6 +16,7 @@ evaluator infrastructure issues.
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -35,7 +36,7 @@ class SyncAgent(Protocol):
     Matches ``pydantic_ai.Agent.run_sync`` for typing without importing Agent here.
     """
 
-    def run_sync(self, user_prompt: str) -> Any:
+    def run_sync(self, user_prompt: str, *args: Any, **kwargs: Any) -> Any:
         """Run the agent once and return a result or raw string.
 
         Args:
@@ -72,6 +73,18 @@ def _extract_agent_output(agent_response: Any) -> str:
     """
     output = getattr(agent_response, "output", agent_response)
     return str(output).strip()
+
+
+def _run_agent(agent: SyncAgent, agent_input: AgentInput) -> Any:
+    """Run an agent, forwarding scenario only when the agent supports it."""
+    signature = inspect.signature(agent.run_sync)
+    parameters = signature.parameters.values()
+    accepts_kwargs = any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters
+    )
+    if accepts_kwargs or "scenario" in signature.parameters:
+        return agent.run_sync(agent_input.alert_text, scenario=agent_input.scenario)
+    return agent.run_sync(agent_input.alert_text)
 
 
 def _resolve_sample(loaded: Any, row: dict[str, Any], dataset_file: str) -> dict[str, Any]:
@@ -203,10 +216,11 @@ def run_agent_on_training_split(
     *,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
+    partition: str = "test",
 ) -> list[AgentResult]:
     """Execute an agent over **test** rows in a training split file.
 
-    Only rows where ``split == "test"`` are evaluated. For each row, the
+    Only rows where ``split`` matches ``partition`` are evaluated. For each row, the
     companion dataset file named in ``file`` is loaded; ``input.alert_text``
     is sent to the agent.
 
@@ -223,6 +237,7 @@ def run_agent_on_training_split(
             scored with embedding-based cosine similarity (RCA vs expected
             output and per-golden-entity vs RCA). Pass ``False`` via
             ``--no-cosine`` to skip the sentence-transformer load.
+        partition: Split partition to evaluate, such as ``train``, ``dev``, or ``test``.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
@@ -244,8 +259,7 @@ def run_agent_on_training_split(
 
     results: list[AgentResult] = []
     for row in split_rows:
-        # Train rows are skipped; the ticket evaluates generalization on test only.
-        if row.get("split") != "test":
+        if row.get("split") != partition:
             continue
 
         dataset_file = row.get("file")
@@ -263,7 +277,7 @@ def run_agent_on_training_split(
             alert_text=alert_text,
             scenario=row.get("base_scenario") or row.get("scenario_id"),
         )
-        agent_response = agent.run_sync(agent_input.alert_text)
+        agent_response = _run_agent(agent, agent_input)
 
         rca_output = _extract_agent_output(agent_response)
         expected_output = sample.get("expected_output", "")
@@ -342,6 +356,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--training-file", required=True, help="Path to training_*.json file.")
     parser.add_argument("--output-file", required=True, help="Path to output JSON results.")
     parser.add_argument(
+        "--partition",
+        default="test",
+        help="Split partition to evaluate (default: test).",
+    )
+    parser.add_argument(
         "--dataset-dir",
         default=None,
         help="Optional path to dataset JSON files (default: <training parent>/data/datasets).",
@@ -373,6 +392,7 @@ def main() -> None:
         dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
         judge_enabled=args.judge_enabled,
         cosine_enabled=args.cosine_enabled,
+        partition=args.partition,
     )
 
 
