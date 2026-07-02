@@ -112,3 +112,77 @@ def test_online_no_warmup_experiment_evaluates_with_empty_playbook(tmp_path: Pat
     assert metadata["warmup_enabled"] is False
     assert metadata["warmup_outputs"] == []
     assert playbook["entries"] == []
+
+
+def test_experiment_selects_named_dvc_fold(tmp_path: Path) -> None:
+    """Ablation experiments should use the requested DVC fold for warmup and eval."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_leave_scenario_out.json"
+    output_root = tmp_path / "experiments"
+    agent = StaticScenarioAgent("service targetPort container port connection refused")
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "leave_scenario_out",
+            "folds": [
+                {
+                    "fold_name": "hold_out_a",
+                    "assignments": [
+                        {
+                            "id": "sample-a",
+                            "file": "case_a.json",
+                            "split": "test",
+                            "base_scenario": "ignored",
+                        }
+                    ],
+                },
+                {
+                    "fold_name": "hold_out_b",
+                    "assignments": [
+                        {
+                            "id": "sample-train",
+                            "file": "train_case.json",
+                            "split": "train",
+                            "base_scenario": "routing",
+                        },
+                        {
+                            "id": "sample-test",
+                            "file": "test_case.json",
+                            "split": "test",
+                            "base_scenario": "routing",
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+    sample = {
+        "input": {"alert_text": "ALERT selected"},
+        "expected_output": "service targetPort container port connection refused",
+        "golden_entities": ["service targetPort", "container port", "connection refused"],
+    }
+    _write_json(dataset_dir / "train_case.json", {"id": "sample-train", **sample})
+    _write_json(dataset_dir / "test_case.json", {"id": "sample-test", **sample})
+
+    results = run_ace_ablation_experiment(
+        AceAblationMode.SINGLE_EPOCH,
+        training_split_path=training_file,
+        output_root=output_root,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        fold_name="hold_out_b",
+        ace_agent_factory=lambda _path, _config: agent,
+    )
+
+    metadata = json.loads(
+        (output_root / "single_epoch" / "metadata.json").read_text(encoding="utf-8")
+    )
+
+    assert len(results) == 1
+    assert metadata["fold_name"] == "hold_out_b"
+    assert agent.calls == [
+        ("ALERT selected", "routing"),
+        ("ALERT selected", "routing"),
+    ]

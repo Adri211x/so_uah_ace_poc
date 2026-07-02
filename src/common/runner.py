@@ -1,8 +1,9 @@
 """Runner utilities to execute agents against ``event_system`` training splits.
 
-Expects a split file such as ``training_stratified.json`` (list of rows with
-``split``, ``file``, etc.) and a parallel ``data/datasets/*.json`` tree with
-full samples. The mock MCP server for each scenario must already be running
+Expects a split file such as ``training_stratified.json`` and a parallel
+``data/datasets/*.json`` tree with full samples. Split files can be the legacy
+flat list shape or the DVC-managed shapes with top-level ``assignments`` or
+named ``folds``. The mock MCP server for each scenario must already be running
 when you execute real agents; unit tests use a stub ``SyncAgent`` instead.
 
 The runner produces one ``AgentResult`` per evaluated sample. When the
@@ -58,6 +59,159 @@ def _load_json_file(path: Path) -> Any:
     """
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_training_split_rows(
+    training_split_path: Path,
+    *,
+    fold_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Load split rows from flat and DVC-managed training split files.
+
+    Args:
+        training_split_path: Path to the JSON split file.
+        fold_name: Optional fold name required when the split contains several
+            named folds.
+
+    Returns:
+        List of split assignment rows.
+
+    Raises:
+        FileNotFoundError: If the split file does not exist.
+        ValueError: If the split payload shape is unsupported, the requested
+            fold does not exist, or assignment rows are not mappings.
+    """
+    if not training_split_path.exists():
+        raise FileNotFoundError(f"Training split file not found: {training_split_path}")
+
+    payload = _load_json_file(training_split_path)
+    return _resolve_split_rows(payload, fold_name=fold_name)
+
+
+def _resolve_split_rows(
+    payload: Any,
+    *,
+    fold_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize supported split payloads to assignment rows."""
+    if isinstance(payload, list):
+        return _validate_split_rows(payload)
+
+    if not isinstance(payload, dict):
+        raise ValueError("Training split file must contain a JSON list or object.")
+
+    assignments = payload.get("assignments")
+    if assignments is not None:
+        return _validate_split_rows(assignments)
+
+    folds = payload.get("folds")
+    if folds is not None:
+        fold_payload = _select_fold(folds, fold_name=fold_name)
+        return _resolve_fold_assignments(fold_payload)
+
+    raise ValueError("Training split object must include 'assignments' or 'folds'.")
+
+
+def _validate_split_rows(rows: Any) -> list[dict[str, Any]]:
+    """Validate assignment row shape after loading a split."""
+    if not isinstance(rows, list):
+        raise ValueError("Training split assignments must be a JSON list.")
+
+    invalid_indexes = [index for index, row in enumerate(rows) if not isinstance(row, dict)]
+    if invalid_indexes:
+        raise ValueError(
+            "Training split assignments must contain only JSON objects; "
+            f"invalid row indexes: {invalid_indexes}."
+        )
+
+    return rows
+
+
+def _select_fold(folds: Any, *, fold_name: str | None) -> Any:
+    """Select one fold payload from DVC split metadata."""
+    if isinstance(folds, dict):
+        return _select_fold_from_mapping(folds, fold_name=fold_name)
+
+    if isinstance(folds, list):
+        return _select_fold_from_list(folds, fold_name=fold_name)
+
+    raise ValueError("Training split 'folds' must be a JSON object or list.")
+
+
+def _select_fold_from_mapping(folds: dict[str, Any], *, fold_name: str | None) -> Any:
+    """Select a fold from a mapping of fold names to payloads."""
+    if fold_name is None:
+        if len(folds) == 1:
+            return next(iter(folds.values()))
+        if "default" in folds:
+            return folds["default"]
+        available = ", ".join(sorted(str(name) for name in folds))
+        raise ValueError(
+            f"Training split contains multiple folds. Pass --fold with one of: {available}."
+        )
+
+    try:
+        return folds[fold_name]
+    except KeyError as exc:
+        available = ", ".join(sorted(str(name) for name in folds))
+        raise ValueError(f"Fold {fold_name!r} not found. Available folds: {available}.") from exc
+
+
+def _select_fold_from_list(folds: list[Any], *, fold_name: str | None) -> Any:
+    """Select a fold from a list of fold objects."""
+    if not folds:
+        raise ValueError("Training split contains an empty 'folds' list.")
+
+    if fold_name is None:
+        if len(folds) == 1:
+            return folds[0]
+        default_fold = _find_named_fold(folds, "default")
+        if default_fold is not None:
+            return default_fold
+        available = ", ".join(_iter_fold_names(folds))
+        raise ValueError(
+            f"Training split contains multiple folds. Pass --fold with one of: {available}."
+        )
+
+    selected = _find_named_fold(folds, fold_name)
+    if selected is not None:
+        return selected
+
+    available = ", ".join(_iter_fold_names(folds))
+    raise ValueError(f"Fold {fold_name!r} not found. Available folds: {available}.")
+
+
+def _find_named_fold(folds: list[Any], fold_name: str) -> Any | None:
+    """Return the fold whose ``fold_name`` matches, if present."""
+    for fold in folds:
+        if isinstance(fold, dict) and fold.get("fold_name") == fold_name:
+            return fold
+    return None
+
+
+def _iter_fold_names(folds: list[Any]) -> list[str]:
+    """Return display names for available folds."""
+    names: list[str] = []
+    for index, fold in enumerate(folds):
+        if isinstance(fold, dict) and fold.get("fold_name"):
+            names.append(str(fold["fold_name"]))
+        else:
+            names.append(str(index))
+    return names
+
+
+def _resolve_fold_assignments(fold_payload: Any) -> list[dict[str, Any]]:
+    """Return assignments from a selected fold payload."""
+    if isinstance(fold_payload, list):
+        return _validate_split_rows(fold_payload)
+
+    if isinstance(fold_payload, dict):
+        assignments = fold_payload.get("assignments")
+        if assignments is None:
+            raise ValueError("Selected fold must include an 'assignments' list.")
+        return _validate_split_rows(assignments)
+
+    raise ValueError("Selected fold must be a JSON object or assignment list.")
 
 
 def _extract_agent_output(agent_response: Any) -> str:
@@ -217,8 +371,9 @@ def run_agent_on_training_split(
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
     partition: str = "test",
+    fold_name: str | None = None,
 ) -> list[AgentResult]:
-    """Execute an agent over **test** rows in a training split file.
+    """Execute an agent over one partition in a training split file.
 
     Only rows where ``split`` matches ``partition`` are evaluated. For each row, the
     companion dataset file named in ``file`` is loaded; ``input.alert_text``
@@ -238,20 +393,16 @@ def run_agent_on_training_split(
             output and per-golden-entity vs RCA). Pass ``False`` via
             ``--no-cosine`` to skip the sentence-transformer load.
         partition: Split partition to evaluate, such as ``train``, ``dev``, or ``test``.
+        fold_name: Optional fold name for DVC split files with multiple folds.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
 
     Raises:
         FileNotFoundError: If the split file or dataset directory is missing.
-        ValueError: If the split JSON is not a list or rows lack required fields.
+        ValueError: If the split JSON shape is unsupported or rows lack required fields.
     """
-    if not training_split_path.exists():
-        raise FileNotFoundError(f"Training split file not found: {training_split_path}")
-
-    split_rows = _load_json_file(training_split_path)
-    if not isinstance(split_rows, list):
-        raise ValueError("Training split file must contain a JSON list.")
+    split_rows = load_training_split_rows(training_split_path, fold_name=fold_name)
 
     resolved_dataset_dir = dataset_dir or training_split_path.parent / "data" / "datasets"
     if not resolved_dataset_dir.exists():
@@ -361,6 +512,11 @@ def _parse_args() -> argparse.Namespace:
         help="Split partition to evaluate (default: test).",
     )
     parser.add_argument(
+        "--fold",
+        default=None,
+        help="Optional fold name for DVC split files that contain named folds.",
+    )
+    parser.add_argument(
         "--dataset-dir",
         default=None,
         help="Optional path to dataset JSON files (default: <training parent>/data/datasets).",
@@ -393,6 +549,7 @@ def main() -> None:
         judge_enabled=args.judge_enabled,
         cosine_enabled=args.cosine_enabled,
         partition=args.partition,
+        fold_name=args.fold,
     )
 
 

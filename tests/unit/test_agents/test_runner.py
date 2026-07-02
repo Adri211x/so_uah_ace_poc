@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
 from src.common.runner import run_agent_on_training_split
@@ -471,3 +473,133 @@ def test_runner_can_evaluate_non_test_partition(tmp_path: Path) -> None:
     assert len(results) == 1
     assert results[0].sample_id == "sample-train"
     assert "ALERT train" in results[0].rca_output
+
+
+def test_runner_accepts_dvc_assignments_object(tmp_path: Path) -> None:
+    """Runner should consume stratified DVC splits without exporting a flat file."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "stratified",
+            "assignments": [
+                {"id": "sample-train", "file": "train_case.json", "split": "train"},
+                {
+                    "id": "sample-test",
+                    "file": "test_case.json",
+                    "split": "test",
+                    "base_scenario": "routing",
+                },
+            ],
+        },
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT dvc"},
+            "expected_output": "routing evidence",
+            "golden_entities": ["routing"],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-test"
+    assert "ALERT dvc" in results[0].rca_output
+
+
+def test_runner_selects_named_dvc_fold(tmp_path: Path) -> None:
+    """Runner should select the requested fold from leave-out DVC splits."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_leave_scenario_out.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "leave_scenario_out",
+            "folds": [
+                {
+                    "fold_name": "hold_out_a",
+                    "assignments": [{"id": "sample-a", "file": "case_a.json", "split": "test"}],
+                },
+                {
+                    "fold_name": "hold_out_b",
+                    "assignments": [{"id": "sample-b", "file": "case_b.json", "split": "test"}],
+                },
+            ],
+        },
+    )
+    _write_json(
+        dataset_dir / "case_a.json",
+        {
+            "id": "sample-a",
+            "input": {"alert_text": "ALERT A"},
+            "expected_output": "ignored",
+            "golden_entities": [],
+        },
+    )
+    _write_json(
+        dataset_dir / "case_b.json",
+        {
+            "id": "sample-b",
+            "input": {"alert_text": "ALERT B"},
+            "expected_output": "selected",
+            "golden_entities": [],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        fold_name="hold_out_b",
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-b"
+    assert "ALERT B" in results[0].rca_output
+
+
+def test_runner_requires_fold_when_dvc_split_has_multiple_folds(tmp_path: Path) -> None:
+    """Multi-fold DVC splits should fail clearly unless the caller chooses a fold."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    dataset_dir.mkdir(parents=True)
+    training_file = tmp_path / "training_leave_family_out.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "leave_family_out",
+            "folds": [
+                {"fold_name": "hold_out_config_error", "assignments": []},
+                {"fold_name": "hold_out_container_error", "assignments": []},
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Pass --fold"):
+        run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+        )

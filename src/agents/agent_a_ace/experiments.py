@@ -22,6 +22,7 @@ from src.common.runner import (
     SyncAgent,
     _load_json_file,
     _resolve_sample,
+    load_training_split_rows,
     run_agent_on_training_split,
 )
 from src.common.schemas import AgentResult, Playbook
@@ -41,6 +42,7 @@ def run_ace_ablation_experiment(
     dataset_dir: Path | None = None,
     warmup_partition: str = "train",
     eval_partition: str = "test",
+    fold_name: str | None = None,
     default_epochs: int = DEFAULT_LEARNING_EPOCHS,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
@@ -57,6 +59,7 @@ def run_ace_ablation_experiment(
         dataset_dir: Optional dataset directory override.
         warmup_partition: Partition used to build the playbook before eval.
         eval_partition: Partition evaluated after warmup.
+        fold_name: Optional fold name for DVC split files with multiple folds.
         default_epochs: Multi-epoch count for modes that use the full loop.
         judge_enabled: Whether to run the LLM judge.
         cosine_enabled: Whether to run cosine scoring.
@@ -84,6 +87,7 @@ def run_ace_ablation_experiment(
             training_split_path=training_split_path,
             dataset_dir=dataset_dir,
             partition=warmup_partition,
+            fold_name=fold_name,
         )
         _run_warmup_epochs(
             agent=agent,
@@ -93,6 +97,7 @@ def run_ace_ablation_experiment(
             playbook_path=playbook_path,
             run_dir=run_dir,
             warmup_partition=warmup_partition,
+            fold_name=fold_name,
             scenario_by_sample_id=scenario_by_sample_id,
             judge_enabled=judge_enabled,
             cosine_enabled=cosine_enabled,
@@ -109,6 +114,7 @@ def run_ace_ablation_experiment(
         judge_enabled=judge_enabled,
         cosine_enabled=cosine_enabled,
         partition=eval_partition,
+        fold_name=fold_name,
     )
     _write_metadata(
         config=config,
@@ -118,6 +124,7 @@ def run_ace_ablation_experiment(
         warmup_outputs=warmup_outputs,
         warmup_partition=warmup_partition,
         eval_partition=eval_partition,
+        fold_name=fold_name,
         result_count=len(results),
     )
     logger.info(
@@ -135,6 +142,7 @@ def run_all_ace_ablation_experiments(
     dataset_dir: Path | None = None,
     warmup_partition: str = "train",
     eval_partition: str = "test",
+    fold_name: str | None = None,
     default_epochs: int = DEFAULT_LEARNING_EPOCHS,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
@@ -149,6 +157,7 @@ def run_all_ace_ablation_experiments(
             dataset_dir=dataset_dir,
             warmup_partition=warmup_partition,
             eval_partition=eval_partition,
+            fold_name=fold_name,
             default_epochs=default_epochs,
             judge_enabled=judge_enabled,
             cosine_enabled=cosine_enabled,
@@ -189,6 +198,7 @@ def _run_warmup_epochs(
     playbook_path: Path,
     run_dir: Path,
     warmup_partition: str,
+    fold_name: str | None,
     scenario_by_sample_id: dict[str, str],
     judge_enabled: bool,
     cosine_enabled: bool,
@@ -208,6 +218,7 @@ def _run_warmup_epochs(
             judge_enabled=judge_enabled,
             cosine_enabled=cosine_enabled,
             partition=warmup_partition,
+            fold_name=fold_name,
         )
         update_playbook_from_results(
             warmup_results,
@@ -223,11 +234,10 @@ def _build_scenario_lookup(
     training_split_path: Path,
     dataset_dir: Path | None,
     partition: str,
+    fold_name: str | None,
 ) -> dict[str, str]:
     """Build sample id to scenario lookup for one split partition."""
-    split_rows = _load_json_file(training_split_path)
-    if not isinstance(split_rows, list):
-        raise ValueError("Training split file must contain a JSON list.")
+    split_rows = load_training_split_rows(training_split_path, fold_name=fold_name)
 
     resolved_dataset_dir = dataset_dir or training_split_path.parent / "data" / "datasets"
     scenario_by_sample_id: dict[str, str] = {}
@@ -255,6 +265,7 @@ def _write_metadata(
     warmup_outputs: list[Path],
     warmup_partition: str,
     eval_partition: str,
+    fold_name: str | None,
     result_count: int,
 ) -> None:
     """Persist a small metadata file next to experiment outputs."""
@@ -267,6 +278,7 @@ def _write_metadata(
         "playbook_scope": config.playbook_scope,
         "warmup_partition": warmup_partition,
         "eval_partition": eval_partition,
+        "fold_name": fold_name,
         "playbook_path": str(playbook_path) if playbook_path is not None else None,
         "warmup_outputs": [str(path) for path in warmup_outputs],
         "result_output_path": str(result_output_path),
@@ -285,6 +297,11 @@ def _parse_args() -> argparse.Namespace:
         "--mode", required=True, choices=[*["all"], *(mode.value for mode in _ALL_MODES)]
     )
     parser.add_argument("--training-file", required=True, help="Path to training split JSON file.")
+    parser.add_argument(
+        "--fold",
+        default=None,
+        help="Optional fold name for DVC split files that contain named folds.",
+    )
     parser.add_argument(
         "--output-root",
         default=str(DEFAULT_EXPERIMENT_ROOT),
@@ -337,6 +354,7 @@ def main() -> None:
         "dataset_dir": Path(args.dataset_dir) if args.dataset_dir else None,
         "warmup_partition": args.warmup_partition,
         "eval_partition": args.eval_partition,
+        "fold_name": args.fold,
         "default_epochs": args.epochs,
         "judge_enabled": args.judge_enabled,
         "cosine_enabled": args.cosine_enabled,

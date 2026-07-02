@@ -207,7 +207,7 @@ It does not yet update the playbook online during the test partition.
 ```bash
 PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
     --mode single_epoch \
-    --training-file tmp/flat_split.json \
+    --training-file data/event_system/training_stratified.json \
     --dataset-dir data/event_system/data/datasets \
     --warmup-partition train \
     --eval-partition test \
@@ -220,7 +220,7 @@ PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
 ```bash
 PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
     --mode all \
-    --training-file tmp/flat_split.json \
+    --training-file data/event_system/training_stratified.json \
     --dataset-dir data/event_system/data/datasets \
     --warmup-partition train \
     --eval-partition test \
@@ -230,6 +230,20 @@ PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
 
 Use `--no-judge --no-cosine` when measuring orchestration time with simulated
 or fake agents.
+
+For DVC leave-out splits, select the fold explicitly:
+
+```bash
+PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
+    --mode single_epoch \
+    --training-file data/event_system/training_leave_scenario_out.json \
+    --fold hold_out_kubernetes-crashloop \
+    --dataset-dir data/event_system/data/datasets \
+    --warmup-partition train \
+    --eval-partition test \
+    --no-judge \
+    --no-cosine
+```
 
 ## Dataset And DVC
 
@@ -262,20 +276,9 @@ The DVC dataset includes:
 | `data/event_system/training_leave_scenario_out.json` | Leave-scenario-out split. |
 | `data/event_system/training_leave_family_out.json` | Leave-family-out split. |
 
-The DVC split files are structured as dictionaries with an `assignments` field.
-The current generic runner expects a flat list of rows. For now, use an exported
-flat split or create one from `assignments` before running the generic runner.
-
-Export a flat test split with `event-runner`:
-
-```bash
-cd data/event_system
-uv run event-runner export \
-    --split stratified \
-    --fold default \
-    --partition test \
-    -o ../../tmp/stratified_test_cases.json
-```
+The generic runner and ACE ablation runner can read the DVC split files
+directly. Stratified splits use top-level `assignments`; leave-out splits use
+named `folds` and should be run with `--fold <fold_name>`.
 
 Useful dataset commands:
 
@@ -387,7 +390,6 @@ just clean        # Remove generated Python caches
 
 | Limitation | Impact |
 |------------|--------|
-| DVC split files are dictionary-shaped. | The generic runner needs a flat list or a future loader that reads `assignments`. |
 | `online_no_warmup` does not learn during test evaluation. | It currently measures empty-playbook evaluation, not true online adaptation. |
 | Playbook storage is JSON-backed. | Good for local experiments, but database-backed context is still future work. |
 | Full LLM + MCP experiments can be long. | Use fake agents and disabled heavy scorers for orchestration timing first. |
