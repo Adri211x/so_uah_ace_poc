@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from src.agents.agent_a_ace.ablations import AceAblationMode
 from src.agents.agent_a_ace.experiments import run_ace_ablation_experiment
@@ -20,6 +21,31 @@ class StaticScenarioAgent:
         """Return a fixed RCA while recording prompt and scenario."""
         self.calls.append((user_prompt, scenario))
         return self.output
+
+
+class FakeSplitRunnerCase:
+    """Tiny stand-in for event_system RunCase."""
+
+    def __init__(self) -> None:
+        self.case = type(
+            "Case",
+            (),
+            {
+                "scenario_ref": "sample-test",
+                "scenario_id": "routing",
+            },
+        )()
+        self.input = {"alert_text": "ALERT service unavailable"}
+        self.expected_output = "service targetPort container port connection refused"
+        self.golden_entities = ["service targetPort", "container port", "connection refused"]
+
+
+class FakeSplitRunner:
+    """Fake SplitRunner used by experiment tests."""
+
+    def iter_cases(self, split_type: str, fold_name: str, split: str):
+        _ = (split_type, fold_name, split)
+        yield FakeSplitRunnerCase()
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -186,3 +212,33 @@ def test_experiment_selects_named_dvc_fold(tmp_path: Path) -> None:
         ("ALERT selected", "routing"),
         ("ALERT selected", "routing"),
     ]
+
+
+def test_experiment_passes_mock_mcp_options_to_runner(tmp_path: Path) -> None:
+    """Ablation experiments should pass managed mock MCP options to runner calls."""
+    training_file, dataset_dir = _write_split_fixture(tmp_path)
+    output_root = tmp_path / "experiments"
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    agent = StaticScenarioAgent("service targetPort container port connection refused")
+
+    with patch("src.common.runner._build_split_runner", return_value=FakeSplitRunner()):
+        results = run_ace_ablation_experiment(
+            AceAblationMode.ONLINE_NO_WARMUP,
+            training_split_path=training_file,
+            output_root=output_root,
+            dataset_dir=dataset_dir,
+            cache_dir=cache_dir,
+            mock_mcp_enabled=True,
+            judge_enabled=False,
+            cosine_enabled=False,
+            ace_agent_factory=lambda _path, _config: agent,
+        )
+
+    metadata = json.loads(
+        (output_root / "online_no_warmup" / "metadata.json").read_text(encoding="utf-8")
+    )
+
+    assert len(results) == 1
+    assert metadata["mock_mcp_enabled"] is True
+    assert metadata["cache_dir"] == str(cache_dir)

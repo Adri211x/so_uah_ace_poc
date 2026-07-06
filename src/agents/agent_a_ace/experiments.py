@@ -43,6 +43,9 @@ def run_ace_ablation_experiment(
     warmup_partition: str = "train",
     eval_partition: str = "test",
     fold_name: str | None = None,
+    mock_mcp_enabled: bool = False,
+    cache_dir: Path | None = None,
+    max_cases: int | None = None,
     default_epochs: int = DEFAULT_LEARNING_EPOCHS,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
@@ -60,6 +63,9 @@ def run_ace_ablation_experiment(
         warmup_partition: Partition used to build the playbook before eval.
         eval_partition: Partition evaluated after warmup.
         fold_name: Optional fold name for DVC split files with multiple folds.
+        mock_mcp_enabled: Whether to start mock MCP servers with SplitRunner.
+        cache_dir: Optional directory containing mock MCP cache files.
+        max_cases: Optional cap for short smoke tests.
         default_epochs: Multi-epoch count for modes that use the full loop.
         judge_enabled: Whether to run the LLM judge.
         cosine_enabled: Whether to run cosine scoring.
@@ -98,6 +104,9 @@ def run_ace_ablation_experiment(
             run_dir=run_dir,
             warmup_partition=warmup_partition,
             fold_name=fold_name,
+            mock_mcp_enabled=mock_mcp_enabled,
+            cache_dir=cache_dir,
+            max_cases=max_cases,
             scenario_by_sample_id=scenario_by_sample_id,
             judge_enabled=judge_enabled,
             cosine_enabled=cosine_enabled,
@@ -115,6 +124,9 @@ def run_ace_ablation_experiment(
         cosine_enabled=cosine_enabled,
         partition=eval_partition,
         fold_name=fold_name,
+        mock_mcp_enabled=mock_mcp_enabled,
+        cache_dir=cache_dir,
+        max_cases=max_cases,
     )
     _write_metadata(
         config=config,
@@ -125,6 +137,9 @@ def run_ace_ablation_experiment(
         warmup_partition=warmup_partition,
         eval_partition=eval_partition,
         fold_name=fold_name,
+        mock_mcp_enabled=mock_mcp_enabled,
+        cache_dir=cache_dir,
+        max_cases=max_cases,
         result_count=len(results),
     )
     logger.info(
@@ -143,6 +158,9 @@ def run_all_ace_ablation_experiments(
     warmup_partition: str = "train",
     eval_partition: str = "test",
     fold_name: str | None = None,
+    mock_mcp_enabled: bool = False,
+    cache_dir: Path | None = None,
+    max_cases: int | None = None,
     default_epochs: int = DEFAULT_LEARNING_EPOCHS,
     judge_enabled: bool = True,
     cosine_enabled: bool = True,
@@ -158,6 +176,9 @@ def run_all_ace_ablation_experiments(
             warmup_partition=warmup_partition,
             eval_partition=eval_partition,
             fold_name=fold_name,
+            mock_mcp_enabled=mock_mcp_enabled,
+            cache_dir=cache_dir,
+            max_cases=max_cases,
             default_epochs=default_epochs,
             judge_enabled=judge_enabled,
             cosine_enabled=cosine_enabled,
@@ -199,6 +220,9 @@ def _run_warmup_epochs(
     run_dir: Path,
     warmup_partition: str,
     fold_name: str | None,
+    mock_mcp_enabled: bool,
+    cache_dir: Path | None,
+    max_cases: int | None,
     scenario_by_sample_id: dict[str, str],
     judge_enabled: bool,
     cosine_enabled: bool,
@@ -219,6 +243,9 @@ def _run_warmup_epochs(
             cosine_enabled=cosine_enabled,
             partition=warmup_partition,
             fold_name=fold_name,
+            mock_mcp_enabled=mock_mcp_enabled,
+            cache_dir=cache_dir,
+            max_cases=max_cases,
         )
         update_playbook_from_results(
             warmup_results,
@@ -266,6 +293,9 @@ def _write_metadata(
     warmup_partition: str,
     eval_partition: str,
     fold_name: str | None,
+    mock_mcp_enabled: bool,
+    cache_dir: Path | None,
+    max_cases: int | None,
     result_count: int,
 ) -> None:
     """Persist a small metadata file next to experiment outputs."""
@@ -279,6 +309,9 @@ def _write_metadata(
         "warmup_partition": warmup_partition,
         "eval_partition": eval_partition,
         "fold_name": fold_name,
+        "mock_mcp_enabled": mock_mcp_enabled,
+        "cache_dir": str(cache_dir) if cache_dir is not None else None,
+        "max_cases": max_cases,
         "playbook_path": str(playbook_path) if playbook_path is not None else None,
         "warmup_outputs": [str(path) for path in warmup_outputs],
         "result_output_path": str(result_output_path),
@@ -301,6 +334,23 @@ def _parse_args() -> argparse.Namespace:
         "--fold",
         default=None,
         help="Optional fold name for DVC split files that contain named folds.",
+    )
+    parser.add_argument(
+        "--with-mock-mcp",
+        dest="mock_mcp_enabled",
+        action="store_true",
+        help="Use event_system SplitRunner to start mock MCP servers per cache file.",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Optional path to event_system cache JSON files.",
+    )
+    parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=None,
+        help="Optional maximum number of cases per runner call.",
     )
     parser.add_argument(
         "--output-root",
@@ -355,6 +405,9 @@ def main() -> None:
         "warmup_partition": args.warmup_partition,
         "eval_partition": args.eval_partition,
         "fold_name": args.fold,
+        "mock_mcp_enabled": args.mock_mcp_enabled,
+        "cache_dir": Path(args.cache_dir) if args.cache_dir else None,
+        "max_cases": args.max_cases,
         "default_epochs": args.epochs,
         "judge_enabled": args.judge_enabled,
         "cosine_enabled": args.cosine_enabled,

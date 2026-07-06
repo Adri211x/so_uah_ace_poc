@@ -3,8 +3,9 @@
 Expects a split file such as ``training_stratified.json`` and a parallel
 ``data/datasets/*.json`` tree with full samples. Split files can be the legacy
 flat list shape or the DVC-managed shapes with top-level ``assignments`` or
-named ``folds``. The mock MCP server for each scenario must already be running
-when you execute real agents; unit tests use a stub ``SyncAgent`` instead.
+named ``folds``. Real-agent runs can either use already-running MCP servers or
+``--with-mock-mcp`` to let ``event_system.SplitRunner`` manage them per cache
+source file; unit tests use a stub ``SyncAgent`` instead.
 
 The runner produces one ``AgentResult`` per evaluated sample. When the
 LLM-as-a-judge is enabled (default; opt-out via ``--no-judge``), the
@@ -20,6 +21,8 @@ import argparse
 import inspect
 import json
 import logging
+import sys
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -29,6 +32,52 @@ from src.common.schemas import AgentInput, AgentResult
 from src.common.scoring import score_golden_entities
 
 logger = logging.getLogger(__name__)
+
+
+_SPLIT_FILE_TO_TYPE = {
+    "training_stratified.json": "stratified",
+    "training_leave_family_out.json": "leave_family_out",
+    "training_leave_scenario_out.json": "leave_scenario_out",
+    "training_leave_variation_out.json": "leave_variation_out",
+}
+
+
+def _infer_split_type(training_split_path: Path) -> str:
+    """Infer the event_system split type from split metadata or file name."""
+    payload = _load_json_file(training_split_path)
+    if isinstance(payload, dict) and payload.get("split_type"):
+        return str(payload["split_type"])
+
+    try:
+        return _SPLIT_FILE_TO_TYPE[training_split_path.name]
+    except KeyError as exc:
+        raise ValueError(
+            "Managed mock MCP mode requires a DVC training split with a known "
+            f"split_type; got {training_split_path}."
+        ) from exc
+
+
+def _ensure_event_system_on_path(data_dir: Path) -> None:
+    """Allow importing the local event_system package from the root project."""
+    data_dir_text = str(data_dir)
+    if data_dir_text not in sys.path:
+        sys.path.insert(0, data_dir_text)
+
+
+def _build_split_runner(
+    *,
+    data_dir: Path,
+    dataset_dir: Path,
+    cache_dir: Path,
+) -> Any:
+    """Build the local event_system SplitRunner used for managed MCP mocks."""
+    _ensure_event_system_on_path(data_dir)
+
+    from event_system.case_provider import LocalCaseProvider
+    from event_system.split_runner import SplitRunner
+
+    provider = LocalCaseProvider(data_dir=data_dir)
+    return SplitRunner(provider=provider, cache_dir=cache_dir, dataset_dir=dataset_dir)
 
 
 class SyncAgent(Protocol):
@@ -362,6 +411,119 @@ def _maybe_cosine(
         return None
 
 
+def _build_agent_result(
+    *,
+    agent: SyncAgent,
+    sample_id: str,
+    alert_text: str,
+    expected_output: str,
+    golden_entities: list[str],
+    scenario: str | None,
+    judge_enabled: bool,
+    cosine_enabled: bool,
+) -> AgentResult:
+    """Run one sample through the agent and score the output."""
+    agent_input = AgentInput(alert_text=alert_text, scenario=scenario)
+    agent_response = _run_agent(agent, agent_input)
+
+    rca_output = _extract_agent_output(agent_response)
+    scoring = score_golden_entities(rca_output, golden_entities)
+
+    judge_verdict = _maybe_judge(
+        rca_output=rca_output,
+        expected_output=expected_output,
+        sample_id=sample_id,
+        enabled=judge_enabled and bool(expected_output),
+    )
+
+    cosine_similarity = _maybe_cosine(
+        rca_output=rca_output,
+        expected_output=expected_output,
+        golden_entities=golden_entities,
+        sample_id=sample_id,
+        enabled=cosine_enabled and bool(expected_output),
+    )
+
+    return AgentResult(
+        sample_id=sample_id,
+        rca_output=rca_output,
+        expected_output=expected_output,
+        golden_entities=golden_entities,
+        score=scoring["score"],
+        matched_entities=scoring["matched"],
+        judge_verdict=judge_verdict,
+        cosine_similarity=cosine_similarity,
+    )
+
+
+def _write_results(output_path: Path, results: list[AgentResult]) -> None:
+    """Persist runner results in the standard JSON format."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as handle:
+        json.dump([item.model_dump() for item in results], handle, indent=2, ensure_ascii=False)
+
+
+def _run_agent_on_training_split_with_mock_mcp(
+    agent: SyncAgent,
+    training_split_path: Path,
+    output_path: Path,
+    dataset_dir: Path | None,
+    cache_dir: Path | None,
+    *,
+    judge_enabled: bool,
+    cosine_enabled: bool,
+    partition: str,
+    fold_name: str | None,
+    max_cases: int | None,
+) -> list[AgentResult]:
+    """Execute an agent while SplitRunner manages per-source mock MCP servers."""
+    load_training_split_rows(training_split_path, fold_name=fold_name)
+    split_type = _infer_split_type(training_split_path)
+    resolved_data_dir = training_split_path.parent
+    resolved_dataset_dir = dataset_dir or resolved_data_dir / "data" / "datasets"
+    resolved_cache_dir = cache_dir or resolved_data_dir / "cache"
+
+    if not resolved_dataset_dir.exists():
+        raise FileNotFoundError(f"Dataset directory not found: {resolved_dataset_dir}")
+    if not resolved_cache_dir.exists():
+        raise FileNotFoundError(f"Cache directory not found: {resolved_cache_dir}")
+
+    runner = _build_split_runner(
+        data_dir=resolved_data_dir,
+        dataset_dir=resolved_dataset_dir,
+        cache_dir=resolved_cache_dir,
+    )
+    resolved_fold_name = fold_name or "default"
+
+    results: list[AgentResult] = []
+    with closing(runner.iter_cases(split_type, resolved_fold_name, partition)) as run_cases:
+        for run_case in run_cases:
+            alert_text = run_case.input.get("alert_text")
+            if not alert_text:
+                raise ValueError(
+                    f"Case {run_case.case.scenario_ref} does not contain input.alert_text."
+                )
+
+            if max_cases is not None and len(results) >= max_cases:
+                break
+
+            results.append(
+                _build_agent_result(
+                    agent=agent,
+                    sample_id=str(run_case.case.scenario_ref),
+                    alert_text=alert_text,
+                    expected_output=run_case.expected_output,
+                    golden_entities=run_case.golden_entities,
+                    scenario=run_case.case.scenario_id,
+                    judge_enabled=judge_enabled,
+                    cosine_enabled=cosine_enabled,
+                )
+            )
+
+    _write_results(output_path, results)
+    return results
+
+
 def run_agent_on_training_split(
     agent: SyncAgent,
     training_split_path: Path,
@@ -372,6 +534,9 @@ def run_agent_on_training_split(
     cosine_enabled: bool = True,
     partition: str = "test",
     fold_name: str | None = None,
+    mock_mcp_enabled: bool = False,
+    cache_dir: Path | None = None,
+    max_cases: int | None = None,
 ) -> list[AgentResult]:
     """Execute an agent over one partition in a training split file.
 
@@ -394,6 +559,10 @@ def run_agent_on_training_split(
             ``--no-cosine`` to skip the sentence-transformer load.
         partition: Split partition to evaluate, such as ``train``, ``dev``, or ``test``.
         fold_name: Optional fold name for DVC split files with multiple folds.
+        mock_mcp_enabled: When ``True``, use ``event_system.SplitRunner`` to
+            start the mock MCP servers for each cache source file.
+        cache_dir: Optional directory containing DVC mock MCP cache files.
+        max_cases: Optional cap for short smoke tests.
 
     Returns:
         In-memory list of ``AgentResult`` instances (same order as iteration).
@@ -402,6 +571,20 @@ def run_agent_on_training_split(
         FileNotFoundError: If the split file or dataset directory is missing.
         ValueError: If the split JSON shape is unsupported or rows lack required fields.
     """
+    if mock_mcp_enabled:
+        return _run_agent_on_training_split_with_mock_mcp(
+            agent=agent,
+            training_split_path=training_split_path,
+            output_path=output_path,
+            dataset_dir=dataset_dir,
+            cache_dir=cache_dir,
+            judge_enabled=judge_enabled,
+            cosine_enabled=cosine_enabled,
+            partition=partition,
+            fold_name=fold_name,
+            max_cases=max_cases,
+        )
+
     split_rows = load_training_split_rows(training_split_path, fold_name=fold_name)
 
     resolved_dataset_dir = dataset_dir or training_split_path.parent / "data" / "datasets"
@@ -412,6 +595,8 @@ def run_agent_on_training_split(
     for row in split_rows:
         if row.get("split") != partition:
             continue
+        if max_cases is not None and len(results) >= max_cases:
+            break
 
         dataset_file = row.get("file")
         if not dataset_file:
@@ -424,49 +609,20 @@ def run_agent_on_training_split(
         if not alert_text:
             raise ValueError(f"Sample {sample.get('id')} does not contain input.alert_text.")
 
-        agent_input = AgentInput(
-            alert_text=alert_text,
-            scenario=row.get("base_scenario") or row.get("scenario_id"),
-        )
-        agent_response = _run_agent(agent, agent_input)
-
-        rca_output = _extract_agent_output(agent_response)
-        expected_output = sample.get("expected_output", "")
-        golden_entities = sample.get("golden_entities", [])
-        scoring = score_golden_entities(rca_output, golden_entities)
-
-        judge_verdict = _maybe_judge(
-            rca_output=rca_output,
-            expected_output=expected_output,
-            sample_id=str(sample.get("id", "")),
-            enabled=judge_enabled and bool(expected_output),
-        )
-
-        cosine_similarity = _maybe_cosine(
-            rca_output=rca_output,
-            expected_output=expected_output,
-            golden_entities=golden_entities,
-            sample_id=str(sample.get("id", "")),
-            enabled=cosine_enabled and bool(expected_output),
-        )
-
         results.append(
-            AgentResult(
-                sample_id=sample["id"],
-                rca_output=rca_output,
-                expected_output=expected_output,
-                golden_entities=golden_entities,
-                score=scoring["score"],
-                matched_entities=scoring["matched"],
-                judge_verdict=judge_verdict,
-                cosine_similarity=cosine_similarity,
+            _build_agent_result(
+                agent=agent,
+                sample_id=str(sample["id"]),
+                alert_text=alert_text,
+                expected_output=sample.get("expected_output", ""),
+                golden_entities=sample.get("golden_entities", []),
+                scenario=row.get("base_scenario") or row.get("scenario_id"),
+                judge_enabled=judge_enabled,
+                cosine_enabled=cosine_enabled,
             )
         )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as handle:
-        json.dump([item.model_dump() for item in results], handle, indent=2, ensure_ascii=False)
-
+    _write_results(output_path, results)
     return results
 
 
@@ -517,6 +673,23 @@ def _parse_args() -> argparse.Namespace:
         help="Optional fold name for DVC split files that contain named folds.",
     )
     parser.add_argument(
+        "--with-mock-mcp",
+        dest="mock_mcp_enabled",
+        action="store_true",
+        help="Use event_system SplitRunner to start mock MCP servers per cache file.",
+    )
+    parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Optional path to event_system cache JSON files.",
+    )
+    parser.add_argument(
+        "--max-cases",
+        type=int,
+        default=None,
+        help="Optional maximum number of cases to evaluate.",
+    )
+    parser.add_argument(
         "--dataset-dir",
         default=None,
         help="Optional path to dataset JSON files (default: <training parent>/data/datasets).",
@@ -550,6 +723,9 @@ def main() -> None:
         cosine_enabled=args.cosine_enabled,
         partition=args.partition,
         fold_name=args.fold,
+        mock_mcp_enabled=args.mock_mcp_enabled,
+        cache_dir=Path(args.cache_dir) if args.cache_dir else None,
+        max_cases=args.max_cases,
     )
 
 

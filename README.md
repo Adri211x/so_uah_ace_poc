@@ -47,7 +47,8 @@ just setup
 
 # 3. Configure environment variables
 cp .env.example .env
-# Edit .env and set the required LiteLLM, Langfuse, and MCP settings.
+# Edit .env and set the required LiteLLM settings.
+# Langfuse settings are optional and only needed when tracing is desired.
 
 # 4. Start the development server
 just dev
@@ -150,11 +151,39 @@ uv run python -m src.common.runner \
     --partition train
 ```
 
+Use `--with-mock-mcp` when running real agents over DVC cases. This lets
+`event_system.SplitRunner` read the real DVC split, start the correct mock MCP
+servers for each cache source file, and stop them when the case changes. No
+intermediate exported split file is required.
+
+For smoke tests, clear Langfuse keys and disable OpenTelemetry export so local
+runs are not slowed down by tracing network timeouts:
+
+```bash
+LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true PYTHONPATH=. \
+uv run python -m src.common.runner \
+    --agent agent_b_baseline \
+    --training-file data/event_system/training_stratified.json \
+    --output-file tmp/dvc_baseline_results.json \
+    --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
+    --partition test \
+    --with-mock-mcp \
+    --max-cases 2 \
+    --no-judge \
+    --no-cosine
+```
+
 Heavy scorers can be disabled for fast local runs:
 
 ```bash
 uv run python -m src.common.runner ... --no-judge --no-cosine
 ```
+
+In a smoke run with `--max-cases 2 --no-judge --no-cosine`, the output JSON
+should contain exactly two `AgentResult` items. The fields `judge_verdict` and
+`cosine_similarity` should be `null`; the keyword-based `score` is still
+computed.
 
 Each `AgentResult` includes:
 
@@ -180,13 +209,17 @@ It creates isolated output directories per variant:
 
 ```text
 tmp/ace_ablations/<mode>/
-|-- playbook.json
 |-- results.json
 |-- metadata.json
-|-- warmup_epoch_1.json
-|-- warmup_epoch_2.json
-|-- warmup_epoch_3.json
+|-- playbook.json          # ACE modes only
+|-- warmup_epoch_1.json    # ACE warmup modes only
+|-- warmup_epoch_2.json    # Multi-epoch warmup modes only
+|-- warmup_epoch_3.json    # Multi-epoch warmup modes only
 ```
+
+`baseline` only writes final evaluation results and metadata because it runs
+Agent B without ACE warmup or playbook injection. `online_no_warmup` writes an
+empty playbook plus final results, but no warmup epoch files.
 
 ### Supported Modes
 
@@ -205,12 +238,16 @@ It does not yet update the playbook online during the test partition.
 ### Run One Ablation
 
 ```bash
-PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
+LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true PYTHONPATH=. \
+uv run python -m src.agents.agent_a_ace.experiments \
     --mode single_epoch \
     --training-file data/event_system/training_stratified.json \
     --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
     --warmup-partition train \
     --eval-partition test \
+    --with-mock-mcp \
+    --max-cases 2 \
     --no-judge \
     --no-cosine
 ```
@@ -218,29 +255,71 @@ PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
 ### Run All Ablations
 
 ```bash
-PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
+LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true PYTHONPATH=. \
+uv run python -m src.agents.agent_a_ace.experiments \
     --mode all \
     --training-file data/event_system/training_stratified.json \
     --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
     --warmup-partition train \
     --eval-partition test \
+    --with-mock-mcp \
+    --max-cases 2 \
     --no-judge \
     --no-cosine
 ```
 
-Use `--no-judge --no-cosine` when measuring orchestration time with simulated
-or fake agents.
+Use `--max-cases` for short smoke tests, and remove it for full runs. Use
+`--no-judge --no-cosine` when measuring orchestration time with simulated or
+fake agents.
+
+### Check A Smoke Ablation Run
+
+After a command such as `--mode single_epoch --max-cases 2`, check:
+
+```bash
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+run_dir = Path("tmp/ace_ablations/single_epoch")
+for name in ["warmup_epoch_1.json", "results.json"]:
+    data = json.loads((run_dir / name).read_text(encoding="utf-8"))
+    print(name, len(data))
+
+metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+print(metadata["mode"], metadata["result_count"], metadata["mock_mcp_enabled"])
+PY
+```
+
+Expected smoke-test output:
+
+```text
+warmup_epoch_1.json 2
+results.json 2
+single_epoch 2 True
+```
+
+The CLI log should also include:
+
+```text
+Completed ACE ablation mode single_epoch with 2 evaluation results.
+```
 
 For DVC leave-out splits, select the fold explicitly:
 
 ```bash
-PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
+LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true PYTHONPATH=. \
+uv run python -m src.agents.agent_a_ace.experiments \
     --mode single_epoch \
     --training-file data/event_system/training_leave_scenario_out.json \
     --fold hold_out_kubernetes-crashloop \
     --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
     --warmup-partition train \
     --eval-partition test \
+    --with-mock-mcp \
+    --max-cases 2 \
     --no-judge \
     --no-cosine
 ```
@@ -277,8 +356,9 @@ The DVC dataset includes:
 | `data/event_system/training_leave_family_out.json` | Leave-family-out split. |
 
 The generic runner and ACE ablation runner can read the DVC split files
-directly. Stratified splits use top-level `assignments`; leave-out splits use
-named `folds` and should be run with `--fold <fold_name>`.
+directly when `--with-mock-mcp` is enabled. Stratified splits use top-level
+`assignments`; leave-out splits use named `folds` and should be run with
+`--fold <fold_name>`.
 
 Useful dataset commands:
 
@@ -322,6 +402,23 @@ for all six modes over the stratified split:
 | 10 seconds | About 14.2 hours |
 | 20 seconds | About 28.5 hours |
 
+For real-agent timing, start with bounded smoke tests:
+
+```bash
+/usr/bin/time -p env LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true \
+PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
+    --mode single_epoch \
+    --training-file data/event_system/training_stratified.json \
+    --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
+    --with-mock-mcp \
+    --max-cases 2 \
+    --no-judge \
+    --no-cosine
+```
+
+Then increase `--max-cases` gradually before removing it for a full run.
+
 ## Testing
 
 Run all unit tests:
@@ -334,6 +431,13 @@ Run ablation-specific tests:
 
 ```bash
 .venv/bin/pytest tests/unit/test_agents/test_ace_experiments.py -q
+```
+
+Run SplitRunner tests in the DVC dataset package:
+
+```bash
+cd data/event_system
+.venv/bin/pytest tests/test_split_runner.py -q
 ```
 
 Run all ablation-related tests:
@@ -358,6 +462,16 @@ The project-level `pytest` configuration excludes integration tests by default:
 ```text
 -m "not integration"
 ```
+
+## Troubleshooting
+
+| Symptom | Meaning | What to do |
+|---------|---------|------------|
+| `Exception while exporting Span` or timeout to `langfuse.e2e.so.azure.datadope.co` | The experiment finished, but tracing export failed. | For local runs, prefix commands with `LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true`. |
+| `Completed ACE ablation mode ... with N evaluation results` appears after tracing errors | The ablation run succeeded. | Check `tmp/ace_ablations/<mode>/results.json` and `metadata.json`. |
+| `dvc pull` times out against `minio-api.langfuse.e2e.so.azure.datadope.co` | DVC storage is unreachable from the current network path. | Check VPN/Tailscale connectivity and retry `just dvc-pull`. |
+| `Name or service not known` when calling LiteLLM | DNS or Tailscale resolution failed transiently. | Verify `getent hosts litellm.doi.azure.datadope.co` and retry after network recovers. |
+| Mock MCP ports stay busy on `8090` or `8092-8095` | A previous mock server process is still alive. | Check with `ss -ltnp '( sport = :8090 or sport = :8092 or sport = :8093 or sport = :8094 or sport = :8095 )'`. |
 
 ## Common Commands
 
@@ -392,4 +506,5 @@ just clean        # Remove generated Python caches
 |------------|--------|
 | `online_no_warmup` does not learn during test evaluation. | It currently measures empty-playbook evaluation, not true online adaptation. |
 | Playbook storage is JSON-backed. | Good for local experiments, but database-backed context is still future work. |
+| Mock MCP mode starts subprocesses per cache source file. | Real-agent runs are much more faithful, but still slow because each case calls the LLM. |
 | Full LLM + MCP experiments can be long. | Use fake agents and disabled heavy scorers for orchestration timing first. |
