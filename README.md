@@ -306,6 +306,72 @@ The CLI log should also include:
 Completed ACE ablation mode single_epoch with 2 evaluation results.
 ```
 
+### Run The Fixed 1h Reduced Split
+
+For bounded real-agent ablation runs, use the fixed reduced split:
+
+```text
+data/event_system/reduced_splits/ace_1h/training_stratified.json
+```
+
+This split is derived from the real DVC `training_stratified.json` and contains
+the same fixed cases for every execution:
+
+```text
+train: 10 cases
+test: 10 cases
+```
+
+The baseline only uses the `test` partition. ACE modes use `train` as warmup to
+build `playbook.json`, then evaluate on the same `test` partition used by the
+baseline. Do not pass `--max-cases` for these comparison runs; the split itself
+defines the exact case window.
+
+Because the reduced split lives under `data/event_system/reduced_splits/`, add
+`data/event_system` to `PYTHONPATH` so the local `event_system` package can be
+imported:
+
+```bash
+/usr/bin/time -p env LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true \
+PYTHONPATH=.:data/event_system uv run python -m src.agents.agent_a_ace.experiments \
+    --mode full \
+    --training-file data/event_system/reduced_splits/ace_1h/training_stratified.json \
+    --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
+    --output-root tmp/ace_ablations_1h \
+    --with-mock-mcp \
+    --no-judge \
+    --no-cosine
+```
+
+Run each mode separately when measuring runtime or debugging failures:
+
+```bash
+for mode in baseline full single_epoch online_no_warmup scenario_scoped_playbook failure_only_reflection; do
+  /usr/bin/time -p env LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true \
+  PYTHONPATH=.:data/event_system uv run python -m src.agents.agent_a_ace.experiments \
+    --mode "$mode" \
+    --training-file data/event_system/reduced_splits/ace_1h/training_stratified.json \
+    --dataset-dir data/event_system/data/datasets \
+    --cache-dir data/event_system/cache \
+    --output-root tmp/ace_ablations_1h \
+    --with-mock-mcp \
+    --no-judge \
+    --no-cosine
+done
+```
+
+Expected call counts with this split:
+
+| Mode | Train calls | Test calls | Total calls |
+|------|------------:|-----------:|------------:|
+| `baseline` | 0 | 10 | 10 |
+| `online_no_warmup` | 0 | 10 | 10 |
+| `single_epoch` | 10 | 10 | 20 |
+| `full` | 30 | 10 | 40 |
+| `scenario_scoped_playbook` | 30 | 10 | 40 |
+| `failure_only_reflection` | 30 | 10 | 40 |
+
 For DVC leave-out splits, select the fold explicitly:
 
 ```bash
@@ -354,6 +420,7 @@ The DVC dataset includes:
 | `data/event_system/training_leave_variation_out.json` | Leave-variation-out split. |
 | `data/event_system/training_leave_scenario_out.json` | Leave-scenario-out split. |
 | `data/event_system/training_leave_family_out.json` | Leave-family-out split. |
+| `data/event_system/reduced_splits/ace_1h/training_stratified.json` | Fixed 10 train / 10 test split for bounded real-agent ablation runs. |
 
 The generic runner and ACE ablation runner can read the DVC split files
 directly when `--with-mock-mcp` is enabled. Stratified splits use top-level
@@ -418,6 +485,8 @@ PYTHONPATH=. uv run python -m src.agents.agent_a_ace.experiments \
 ```
 
 Then increase `--max-cases` gradually before removing it for a full run.
+For comparable reduced real-agent runs, use the fixed `ace_1h` split instead of
+`--max-cases`.
 
 ## Testing
 
