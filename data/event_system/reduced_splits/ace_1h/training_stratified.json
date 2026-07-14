@@ -1,135 +1,140 @@
 {
   "split_type": "stratified",
-  "description": "Reduced fixed 10 train / 10 test split derived from data/event_system/training_stratified.json for bounded ACE ablation runs.",
+  "description": "Fixed 23 train / 23 test split for an approximately one-hour complete suite containing baseline, full ACE, and all four implemented ablations.",
   "seed": 2026,
   "num_folds": 1,
-  "train_only_families": [
-    "lock_error",
-    "performance",
-    "probe_error",
-    "routing_error"
-  ],
+  "target_suite_runtime_minutes": 60,
+  "estimated_suite_runtime_seconds": 3545.496,
+  "train_only_families": [],
   "statistics": {
-    "total_samples": 20,
-    "train_samples": 10,
-    "test_samples": 10,
+    "total_samples": 46,
+    "train_samples": 23,
+    "test_samples": 23,
     "train_ratio": 0.5,
     "test_ratio": 0.5,
     "train_by_variation_base": {
-      "alert_rephrased": 1,
-      "real": 9
+      "alert_rephrased": 7,
+      "namespace_shifted": 7,
+      "noise_injected": 7,
+      "real": 2
     },
     "test_by_variation_base": {
-      "alert_rephrased": 2,
-      "real": 8
+      "alert_rephrased": 7,
+      "namespace_shifted": 7,
+      "noise_injected": 7,
+      "real": 2
     },
     "train_by_root_cause_family": {
-      "config_error": 4,
-      "container_error": 2,
-      "false_alarm": 1,
-      "image_error": 1,
-      "resource_limit": 1,
-      "scheduling_error": 1
+      "config_error": 8,
+      "container_error": 3,
+      "false_alarm": 3,
+      "image_error": 3,
+      "resource_limit": 2,
+      "scheduling_error": 2,
+      "service_failure": 2
     },
     "test_by_root_cause_family": {
-      "config_error": 4,
-      "container_error": 2,
-      "false_alarm": 1,
-      "image_error": 1,
-      "resource_limit": 1,
-      "scheduling_error": 1
+      "config_error": 8,
+      "container_error": 3,
+      "false_alarm": 3,
+      "image_error": 3,
+      "resource_limit": 2,
+      "scheduling_error": 2,
+      "service_failure": 2
     },
     "train_by_scenario": {
-      "kubernetes-data-pipeline": 2,
-      "kubernetes-elk-bad-port": 2,
-      "kubernetes-elk-commented-output": 2,
-      "kubernetes-elk-fake": 1,
-      "kubernetes-image-pull": 1,
-      "kubernetes-oomkilled": 1,
-      "kubernetes-service-with-no-endpoints": 1
+      "kubernetes-data-pipeline": 3,
+      "kubernetes-elk-bad-port": 5,
+      "kubernetes-elk-commented-output": 3,
+      "kubernetes-elk-fake": 3,
+      "kubernetes-image-pull": 3,
+      "kubernetes-oomkilled": 2,
+      "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs": 2,
+      "kubernetes-service-with-no-endpoints": 2
     },
     "test_by_scenario": {
-      "kubernetes-data-pipeline": 2,
-      "kubernetes-elk-bad-port": 2,
-      "kubernetes-elk-commented-output": 2,
-      "kubernetes-elk-fake": 1,
-      "kubernetes-image-pull": 1,
-      "kubernetes-oomkilled": 1,
-      "kubernetes-service-with-no-endpoints": 1
+      "kubernetes-data-pipeline": 3,
+      "kubernetes-elk-bad-port": 5,
+      "kubernetes-elk-commented-output": 3,
+      "kubernetes-elk-fake": 3,
+      "kubernetes-image-pull": 3,
+      "kubernetes-oomkilled": 2,
+      "kubernetes-otel-demo-paymentFailure": 2,
+      "kubernetes-service-with-no-endpoints": 2
     }
   },
   "reduced_from": "data/event_system/training_stratified.json",
-  "selection_policy": "Round-robin over scenarios that contain both train and test cases; one train and one test case are selected per scenario occurrence.",
+  "selection_policy": "Deterministic scenario and variation quotas selected with SHA-256 ranking. Every mode uses the same fixed train and test assignments.",
   "assignments": [
     {
-      "id": "kubernetes-elk-bad-port-redis_connection_error_2",
-      "file": "kubernetes-elk-bad-port.json",
-      "split": "train",
-      "base_scenario": "kubernetes-elk-bad-port",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "config_error",
-      "root_cause_key": "port_mismatch"
-    },
-    {
-      "id": "kubernetes-data-pipeline-KubePodCrashLooping",
-      "file": "kubernetes-data-pipeline.json",
+      "id": "kubernetes-data-pipeline-KubePodCrashLooping--alert_rephrased-s500",
+      "file": "kubernetes-data-pipeline--alert_rephrased-s500.json",
       "split": "train",
       "base_scenario": "kubernetes-data-pipeline",
-      "variation": "real",
-      "variation_base": "real",
+      "variation": "alert_rephrased-s500",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "container_error",
       "root_cause_key": "broker_queue_full"
     },
     {
-      "id": "kubernetes-elk-commented-output-logstash2_pod_errors_1",
-      "file": "kubernetes-elk-commented-output.json",
+      "id": "kubernetes-data-pipeline-KubePodCrashLooping--namespace_shifted",
+      "file": "kubernetes-data-pipeline--namespace_shifted.json",
       "split": "train",
-      "base_scenario": "kubernetes-elk-commented-output",
-      "variation": "real",
-      "variation_base": "real",
+      "base_scenario": "kubernetes-data-pipeline",
+      "variation": "namespace_shifted",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "container_error",
+      "root_cause_key": "broker_queue_full"
+    },
+    {
+      "id": "kubernetes-data-pipeline-KubePodCrashLooping--noise_injected",
+      "file": "kubernetes-data-pipeline--noise_injected.json",
+      "split": "train",
+      "base_scenario": "kubernetes-data-pipeline",
+      "variation": "noise_injected",
+      "variation_base": "noise_injected",
+      "root_cause_family": "container_error",
+      "root_cause_key": "broker_queue_full"
+    },
+    {
+      "id": "kubernetes-elk-bad-port-redis_logstash_pod_errors--alert_rephrased-s500",
+      "file": "kubernetes-elk-bad-port--alert_rephrased-s500.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "alert_rephrased-s500",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "config_error",
-      "root_cause_key": "config_error"
+      "root_cause_key": "port_mismatch"
     },
     {
-      "id": "kubernetes-elk-fake-fake_no_data",
-      "file": "kubernetes-elk-fake.json",
+      "id": "kubernetes-elk-bad-port-redis_logstash_pod_errors--alert_rephrased-s800",
+      "file": "kubernetes-elk-bad-port--alert_rephrased-s800.json",
       "split": "train",
-      "base_scenario": "kubernetes-elk-fake",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "false_alarm",
-      "root_cause_key": "false_alarm"
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "alert_rephrased-s800",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
     },
     {
-      "id": "kubernetes-image-pull-KubeDeploymentReplicasMismatch",
-      "file": "kubernetes-image-pull.json",
+      "id": "kubernetes-elk-bad-port-redis_connection_error_2--namespace_shifted",
+      "file": "kubernetes-elk-bad-port--namespace_shifted.json",
       "split": "train",
-      "base_scenario": "kubernetes-image-pull",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "image_error",
-      "root_cause_key": "invalid_image_reference"
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "namespace_shifted",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
     },
     {
-      "id": "kubernetes-oomkilled-KubePodCrashLooping",
-      "file": "kubernetes-oomkilled.json",
+      "id": "kubernetes-elk-bad-port-redis_logstash_pod_errors--noise_injected-s800",
+      "file": "kubernetes-elk-bad-port--noise_injected-s800.json",
       "split": "train",
-      "base_scenario": "kubernetes-oomkilled",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "resource_limit",
-      "root_cause_key": "memory_limit_exceeded"
-    },
-    {
-      "id": "kubernetes-service-with-no-endpoints-KubeDeploymentReplicasMismatch",
-      "file": "kubernetes-service-with-no-endpoints.json",
-      "split": "train",
-      "base_scenario": "kubernetes-service-with-no-endpoints",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "scheduling_error",
-      "root_cause_key": "invalid_node_selector"
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "noise_injected-s800",
+      "variation_base": "noise_injected",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
     },
     {
       "id": "kubernetes-elk-bad-port-redis_logstash_pod_errors",
@@ -142,24 +147,224 @@
       "root_cause_key": "port_mismatch"
     },
     {
-      "id": "kubernetes-data-pipeline-KubePodCrashLooping--alert_rephrased-s1200",
-      "file": "kubernetes-data-pipeline--alert_rephrased-s1200.json",
+      "id": "kubernetes-elk-commented-output-logstash2_pod_errors_1--alert_rephrased-s500",
+      "file": "kubernetes-elk-commented-output--alert_rephrased-s500.json",
       "split": "train",
-      "base_scenario": "kubernetes-data-pipeline",
+      "base_scenario": "kubernetes-elk-commented-output",
+      "variation": "alert_rephrased-s500",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "config_error",
+      "root_cause_key": "config_error"
+    },
+    {
+      "id": "kubernetes-elk-commented-output-logstash2_pod_errors_1--namespace_shifted-s1200",
+      "file": "kubernetes-elk-commented-output--namespace_shifted-s1200.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-commented-output",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "config_error",
+      "root_cause_key": "config_error"
+    },
+    {
+      "id": "kubernetes-elk-commented-output-logstash2_pod_errors_1--noise_injected-s500",
+      "file": "kubernetes-elk-commented-output--noise_injected-s500.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-commented-output",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "config_error",
+      "root_cause_key": "config_error"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_no_data--alert_rephrased-s800",
+      "file": "kubernetes-elk-fake--alert_rephrased-s800.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-fake",
+      "variation": "alert_rephrased-s800",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "false_alarm",
+      "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_no_data--namespace_shifted-s1200",
+      "file": "kubernetes-elk-fake--namespace_shifted-s1200.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-fake",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "false_alarm",
+      "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_no_data--noise_injected-s500",
+      "file": "kubernetes-elk-fake--noise_injected-s500.json",
+      "split": "train",
+      "base_scenario": "kubernetes-elk-fake",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "false_alarm",
+      "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-image-pull-KubePodNotReady--namespace_shifted-s1200",
+      "file": "kubernetes-image-pull--namespace_shifted-s1200.json",
+      "split": "train",
+      "base_scenario": "kubernetes-image-pull",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "image_error",
+      "root_cause_key": "invalid_image_reference"
+    },
+    {
+      "id": "kubernetes-image-pull-KubePodNotReady--noise_injected-s1200",
+      "file": "kubernetes-image-pull--noise_injected-s1200.json",
+      "split": "train",
+      "base_scenario": "kubernetes-image-pull",
+      "variation": "noise_injected-s1200",
+      "variation_base": "noise_injected",
+      "root_cause_family": "image_error",
+      "root_cause_key": "invalid_image_reference"
+    },
+    {
+      "id": "kubernetes-image-pull-KubePodNotReady",
+      "file": "kubernetes-image-pull.json",
+      "split": "train",
+      "base_scenario": "kubernetes-image-pull",
+      "variation": "real",
+      "variation_base": "real",
+      "root_cause_family": "image_error",
+      "root_cause_key": "invalid_image_reference"
+    },
+    {
+      "id": "kubernetes-oomkilled-KubePodCrashLooping--alert_rephrased-s500",
+      "file": "kubernetes-oomkilled--alert_rephrased-s500.json",
+      "split": "train",
+      "base_scenario": "kubernetes-oomkilled",
+      "variation": "alert_rephrased-s500",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "resource_limit",
+      "root_cause_key": "memory_limit_exceeded"
+    },
+    {
+      "id": "kubernetes-oomkilled-KubePodCrashLooping--namespace_shifted-s800",
+      "file": "kubernetes-oomkilled--namespace_shifted-s800.json",
+      "split": "train",
+      "base_scenario": "kubernetes-oomkilled",
+      "variation": "namespace_shifted-s800",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "resource_limit",
+      "root_cause_key": "memory_limit_exceeded"
+    },
+    {
+      "id": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs-ErrorBudgetBurn--alert_rephrased-s1200",
+      "file": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs--alert_rephrased-s1200.json",
+      "split": "train",
+      "base_scenario": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs",
       "variation": "alert_rephrased-s1200",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "service_failure",
+      "root_cause_key": "payment_service_failure"
+    },
+    {
+      "id": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs-ErrorBudgetBurn--noise_injected-s500",
+      "file": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs--noise_injected-s500.json",
+      "split": "train",
+      "base_scenario": "kubernetes-otel-demo-paymentFailure-no-flagd-no-kube-logs",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "service_failure",
+      "root_cause_key": "payment_service_failure"
+    },
+    {
+      "id": "kubernetes-service-with-no-endpoints-KubeDeploymentReplicasMismatch--namespace_shifted",
+      "file": "kubernetes-service-with-no-endpoints--namespace_shifted.json",
+      "split": "train",
+      "base_scenario": "kubernetes-service-with-no-endpoints",
+      "variation": "namespace_shifted",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "scheduling_error",
+      "root_cause_key": "invalid_node_selector"
+    },
+    {
+      "id": "kubernetes-service-with-no-endpoints-KubeDeploymentReplicasMismatch--noise_injected-s800",
+      "file": "kubernetes-service-with-no-endpoints--noise_injected-s800.json",
+      "split": "train",
+      "base_scenario": "kubernetes-service-with-no-endpoints",
+      "variation": "noise_injected-s800",
+      "variation_base": "noise_injected",
+      "root_cause_family": "scheduling_error",
+      "root_cause_key": "invalid_node_selector"
+    },
+    {
+      "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased",
+      "file": "kubernetes-data-pipeline--alert_rephrased.json",
+      "split": "test",
+      "base_scenario": "kubernetes-data-pipeline",
+      "variation": "alert_rephrased",
       "variation_base": "alert_rephrased",
       "root_cause_family": "container_error",
       "root_cause_key": "broker_queue_full"
     },
     {
-      "id": "kubernetes-elk-commented-output-logstash2_pod_errors_2",
-      "file": "kubernetes-elk-commented-output.json",
-      "split": "train",
-      "base_scenario": "kubernetes-elk-commented-output",
-      "variation": "real",
-      "variation_base": "real",
+      "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--namespace_shifted-s1200",
+      "file": "kubernetes-data-pipeline--namespace_shifted-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-data-pipeline",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "container_error",
+      "root_cause_key": "broker_queue_full"
+    },
+    {
+      "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--noise_injected-s1200",
+      "file": "kubernetes-data-pipeline--noise_injected-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-data-pipeline",
+      "variation": "noise_injected-s1200",
+      "variation_base": "noise_injected",
+      "root_cause_family": "container_error",
+      "root_cause_key": "broker_queue_full"
+    },
+    {
+      "id": "kubernetes-elk-bad-port-redis_connection_error_1--alert_rephrased-s1200",
+      "file": "kubernetes-elk-bad-port--alert_rephrased-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "alert_rephrased-s1200",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "config_error",
-      "root_cause_key": "config_error"
+      "root_cause_key": "port_mismatch"
+    },
+    {
+      "id": "kubernetes-elk-bad-port-redis_elasticsearch_no_data--alert_rephrased-s1200",
+      "file": "kubernetes-elk-bad-port--alert_rephrased-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "alert_rephrased-s1200",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
+    },
+    {
+      "id": "kubernetes-elk-bad-port-redis_connection_error_1--namespace_shifted-s1200",
+      "file": "kubernetes-elk-bad-port--namespace_shifted-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
+    },
+    {
+      "id": "kubernetes-elk-bad-port-redis_elasticsearch_no_data--noise_injected-s1200",
+      "file": "kubernetes-elk-bad-port--noise_injected-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-bad-port",
+      "variation": "noise_injected-s1200",
+      "variation_base": "noise_injected",
+      "root_cause_family": "config_error",
+      "root_cause_key": "port_mismatch"
     },
     {
       "id": "kubernetes-elk-bad-port-redis_connection_error_1",
@@ -172,34 +377,84 @@
       "root_cause_key": "port_mismatch"
     },
     {
-      "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch",
-      "file": "kubernetes-data-pipeline.json",
-      "split": "test",
-      "base_scenario": "kubernetes-data-pipeline",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "container_error",
-      "root_cause_key": "broker_queue_full"
-    },
-    {
-      "id": "kubernetes-elk-commented-output-logstash2_no_data",
-      "file": "kubernetes-elk-commented-output.json",
+      "id": "kubernetes-elk-commented-output-logstash2_no_data--alert_rephrased-s1200",
+      "file": "kubernetes-elk-commented-output--alert_rephrased-s1200.json",
       "split": "test",
       "base_scenario": "kubernetes-elk-commented-output",
-      "variation": "real",
-      "variation_base": "real",
+      "variation": "alert_rephrased-s1200",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "config_error",
       "root_cause_key": "config_error"
     },
     {
-      "id": "kubernetes-elk-fake-fake_pod_errors_2",
-      "file": "kubernetes-elk-fake.json",
+      "id": "kubernetes-elk-commented-output-logstash2_no_data--namespace_shifted-s800",
+      "file": "kubernetes-elk-commented-output--namespace_shifted-s800.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-commented-output",
+      "variation": "namespace_shifted-s800",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "config_error",
+      "root_cause_key": "config_error"
+    },
+    {
+      "id": "kubernetes-elk-commented-output-logstash2_no_data--noise_injected-s500",
+      "file": "kubernetes-elk-commented-output--noise_injected-s500.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-commented-output",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "config_error",
+      "root_cause_key": "config_error"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_pod_errors_2--alert_rephrased",
+      "file": "kubernetes-elk-fake--alert_rephrased.json",
       "split": "test",
       "base_scenario": "kubernetes-elk-fake",
-      "variation": "real",
-      "variation_base": "real",
+      "variation": "alert_rephrased",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "false_alarm",
       "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_pod_errors_2--namespace_shifted-s1200",
+      "file": "kubernetes-elk-fake--namespace_shifted-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-fake",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "false_alarm",
+      "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-elk-fake-fake_pod_errors_2--noise_injected",
+      "file": "kubernetes-elk-fake--noise_injected.json",
+      "split": "test",
+      "base_scenario": "kubernetes-elk-fake",
+      "variation": "noise_injected",
+      "variation_base": "noise_injected",
+      "root_cause_family": "false_alarm",
+      "root_cause_key": "false_alarm"
+    },
+    {
+      "id": "kubernetes-image-pull-KubeContainerWaiting--namespace_shifted-s800",
+      "file": "kubernetes-image-pull--namespace_shifted-s800.json",
+      "split": "test",
+      "base_scenario": "kubernetes-image-pull",
+      "variation": "namespace_shifted-s800",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "image_error",
+      "root_cause_key": "invalid_image_reference"
+    },
+    {
+      "id": "kubernetes-image-pull-KubeContainerWaiting--noise_injected-s500",
+      "file": "kubernetes-image-pull--noise_injected-s500.json",
+      "split": "test",
+      "base_scenario": "kubernetes-image-pull",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "image_error",
+      "root_cause_key": "invalid_image_reference"
     },
     {
       "id": "kubernetes-image-pull-KubeContainerWaiting",
@@ -212,54 +467,64 @@
       "root_cause_key": "invalid_image_reference"
     },
     {
-      "id": "kubernetes-oomkilled-KubeDeploymentReplicasMismatch",
-      "file": "kubernetes-oomkilled.json",
+      "id": "kubernetes-oomkilled-KubeDeploymentReplicasMismatch--alert_rephrased",
+      "file": "kubernetes-oomkilled--alert_rephrased.json",
       "split": "test",
       "base_scenario": "kubernetes-oomkilled",
-      "variation": "real",
-      "variation_base": "real",
+      "variation": "alert_rephrased",
+      "variation_base": "alert_rephrased",
       "root_cause_family": "resource_limit",
       "root_cause_key": "memory_limit_exceeded"
     },
     {
-      "id": "kubernetes-service-with-no-endpoints-KubePodNotReady",
-      "file": "kubernetes-service-with-no-endpoints.json",
+      "id": "kubernetes-oomkilled-KubeDeploymentReplicasMismatch--namespace_shifted-s1200",
+      "file": "kubernetes-oomkilled--namespace_shifted-s1200.json",
+      "split": "test",
+      "base_scenario": "kubernetes-oomkilled",
+      "variation": "namespace_shifted-s1200",
+      "variation_base": "namespace_shifted",
+      "root_cause_family": "resource_limit",
+      "root_cause_key": "memory_limit_exceeded"
+    },
+    {
+      "id": "kubernetes-otel-demo-paymentFailure-ErrorBudgetBurn--alert_rephrased",
+      "file": "kubernetes-otel-demo-paymentFailure--alert_rephrased.json",
+      "split": "test",
+      "base_scenario": "kubernetes-otel-demo-paymentFailure",
+      "variation": "alert_rephrased",
+      "variation_base": "alert_rephrased",
+      "root_cause_family": "service_failure",
+      "root_cause_key": "payment_service_failure"
+    },
+    {
+      "id": "kubernetes-otel-demo-paymentFailure-ErrorBudgetBurn--noise_injected-s500",
+      "file": "kubernetes-otel-demo-paymentFailure--noise_injected-s500.json",
+      "split": "test",
+      "base_scenario": "kubernetes-otel-demo-paymentFailure",
+      "variation": "noise_injected-s500",
+      "variation_base": "noise_injected",
+      "root_cause_family": "service_failure",
+      "root_cause_key": "payment_service_failure"
+    },
+    {
+      "id": "kubernetes-service-with-no-endpoints-KubePodNotReady--namespace_shifted-s800",
+      "file": "kubernetes-service-with-no-endpoints--namespace_shifted-s800.json",
       "split": "test",
       "base_scenario": "kubernetes-service-with-no-endpoints",
-      "variation": "real",
-      "variation_base": "real",
+      "variation": "namespace_shifted-s800",
+      "variation_base": "namespace_shifted",
       "root_cause_family": "scheduling_error",
       "root_cause_key": "invalid_node_selector"
     },
     {
-      "id": "kubernetes-elk-bad-port-redis_elasticsearch_no_data",
-      "file": "kubernetes-elk-bad-port.json",
+      "id": "kubernetes-service-with-no-endpoints-KubePodNotReady--noise_injected-s800",
+      "file": "kubernetes-service-with-no-endpoints--noise_injected-s800.json",
       "split": "test",
-      "base_scenario": "kubernetes-elk-bad-port",
-      "variation": "real",
-      "variation_base": "real",
-      "root_cause_family": "config_error",
-      "root_cause_key": "port_mismatch"
-    },
-    {
-      "id": "kubernetes-data-pipeline-KubeDeploymentReplicasMismatch--alert_rephrased-s1200",
-      "file": "kubernetes-data-pipeline--alert_rephrased-s1200.json",
-      "split": "test",
-      "base_scenario": "kubernetes-data-pipeline",
-      "variation": "alert_rephrased-s1200",
-      "variation_base": "alert_rephrased",
-      "root_cause_family": "container_error",
-      "root_cause_key": "broker_queue_full"
-    },
-    {
-      "id": "kubernetes-elk-commented-output-logstash2_no_data--alert_rephrased-s1200",
-      "file": "kubernetes-elk-commented-output--alert_rephrased-s1200.json",
-      "split": "test",
-      "base_scenario": "kubernetes-elk-commented-output",
-      "variation": "alert_rephrased-s1200",
-      "variation_base": "alert_rephrased",
-      "root_cause_family": "config_error",
-      "root_cause_key": "config_error"
+      "base_scenario": "kubernetes-service-with-no-endpoints",
+      "variation": "noise_injected-s800",
+      "variation_base": "noise_injected",
+      "root_cause_family": "scheduling_error",
+      "root_cause_key": "invalid_node_selector"
     }
   ]
 }
