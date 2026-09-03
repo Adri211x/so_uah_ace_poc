@@ -306,45 +306,36 @@ The CLI log should also include:
 Completed ACE ablation mode single_epoch with 2 evaluation results.
 ```
 
-### Run The Fixed 1h Reduced Split
+### Run The Fixed Reduced Split
 
-For bounded real-agent ablation runs, use the fixed reduced split:
+For the approximately one-hour complete ablation suite, use the fixed split:
 
 ```text
 data/event_system/reduced_splits/ace_1h/training_stratified.json
 ```
 
-This split is derived from the real DVC `training_stratified.json` and contains
-the same fixed cases for every execution:
+It contains 23 train cases and 23 test cases selected deterministically from the
+real DVC `training_stratified.json`. The baseline only uses the fixed `test`
+partition. ACE modes use the fixed `train` partition
+to build `playbook.json`, then evaluate on exactly the same `test` cases as the
+baseline. Do not pass `--max-cases` because the split itself defines the shared
+case window.
 
-```text
-train: 10 cases
-test: 10 cases
-```
+The one-hour suite split preserves the same scenario, variation, and root-cause
+distribution in train and test. Its test distribution is:
 
-The baseline only uses the `test` partition. ACE modes use `train` as warmup to
-build `playbook.json`, then evaluate on the same `test` partition used by the
-baseline. Do not pass `--max-cases` for these comparison runs; the split itself
-defines the exact case window.
+| Scenario | Test cases |
+|----------|-----------:|
+| `kubernetes-elk-bad-port` | 5 |
+| `kubernetes-data-pipeline` | 3 |
+| `kubernetes-elk-commented-output` | 3 |
+| `kubernetes-elk-fake` | 3 |
+| `kubernetes-image-pull` | 3 |
+| `kubernetes-oomkilled` | 2 |
+| `kubernetes-otel-demo-paymentFailure` | 2 |
+| `kubernetes-service-with-no-endpoints` | 2 |
 
-Because the reduced split lives under `data/event_system/reduced_splits/`, add
-`data/event_system` to `PYTHONPATH` so the local `event_system` package can be
-imported:
-
-```bash
-/usr/bin/time -p env LANGFUSE_PUBLIC_KEY= LANGFUSE_SECRET_KEY= OTEL_SDK_DISABLED=true \
-PYTHONPATH=.:data/event_system uv run python -m src.agents.agent_a_ace.experiments \
-    --mode full \
-    --training-file data/event_system/reduced_splits/ace_1h/training_stratified.json \
-    --dataset-dir data/event_system/data/datasets \
-    --cache-dir data/event_system/cache \
-    --output-root tmp/ace_ablations_1h \
-    --with-mock-mcp \
-    --no-judge \
-    --no-cosine
-```
-
-Run each mode separately when measuring runtime or debugging failures:
+Run the complete suite once with:
 
 ```bash
 for mode in baseline full single_epoch online_no_warmup scenario_scoped_playbook failure_only_reflection; do
@@ -354,23 +345,50 @@ for mode in baseline full single_epoch online_no_warmup scenario_scoped_playbook
     --training-file data/event_system/reduced_splits/ace_1h/training_stratified.json \
     --dataset-dir data/event_system/data/datasets \
     --cache-dir data/event_system/cache \
-    --output-root tmp/ace_ablations_1h \
+    --output-root tmp/ace_ablations_1h_suite \
     --with-mock-mcp \
     --no-judge \
     --no-cosine
 done
 ```
 
-Expected call counts with this split:
+### Measured One-Hour Suite Results
 
-| Mode | Train calls | Test calls | Total calls |
-|------|------------:|-----------:|------------:|
-| `baseline` | 0 | 10 | 10 |
-| `online_no_warmup` | 0 | 10 | 10 |
-| `single_epoch` | 10 | 10 | 20 |
-| `full` | 30 | 10 | 40 |
-| `scenario_scoped_playbook` | 30 | 10 | 40 |
-| `failure_only_reflection` | 30 | 10 | 40 |
+The complete real-agent suite finished in approximately 61 minutes. Every mode
+evaluated the same 23 test cases, and every warmup-enabled mode used the same 23
+train cases. Scoring used golden-entity matching with `--no-judge --no-cosine`.
+Each case has three golden entities, so the maximum total score is 69.
+
+| Mode | Score / 69 | Non-zero cases | Perfect cases | Comparison with baseline | Approx. time |
+|------|-----------:|---------------:|--------------:|--------------------------|-------------:|
+| `baseline` | 8 | 5 | 0 | Reference. | 3m 54s |
+| `full` | 15 | 9 | 2 | 5 better, 1 worse, 17 equal. | 15m 56s |
+| `single_epoch` | 17 | 10 | 1 | 8 better, 2 worse, 13 equal. | 6m 57s |
+| `online_no_warmup` | 11 | 7 | 0 | 3 better, 1 worse, 19 equal. | 3m 16s |
+| `scenario_scoped_playbook` | 19 | 11 | 2 | 9 better, 1 worse, 13 equal. | 15m 20s |
+| `failure_only_reflection` | **21** | **12** | **3** | **9 better, 0 worse, 14 equal.** | 15m 32s |
+
+Warmup score progression over the 23 train cases:
+
+| Mode | Epoch 1 | Epoch 2 | Epoch 3 |
+|------|--------:|--------:|--------:|
+| `full` | 10 | 11 | 10 |
+| `single_epoch` | 8 | N/A | N/A |
+| `scenario_scoped_playbook` | 7 | 13 | 15 |
+| `failure_only_reflection` | 5 | 15 | 17 |
+
+The measured results show that full ACE improves over the baseline, while the
+best result comes from reflecting only on failures. Scenario-scoped playbook
+injection ranks second, and one epoch outperforms the three-epoch full mode. This
+suggests that success reflections, broad cross-scenario context, and additional
+epochs can introduce noise in this domain. `online_no_warmup` still improves
+slightly over the baseline, but remains below every warmup-enabled ACE mode.
+
+All modes score zero on the selected `kubernetes-data-pipeline` and
+`kubernetes-otel-demo-paymentFailure` cases. Most gains are concentrated in
+configuration errors and `kubernetes-oomkilled`. These results are preliminary:
+the split is intentionally reduced, only one run was measured, and judge and
+cosine evaluation were disabled to keep the suite close to one hour.
 
 For DVC leave-out splits, select the fold explicitly:
 
@@ -420,7 +438,7 @@ The DVC dataset includes:
 | `data/event_system/training_leave_variation_out.json` | Leave-variation-out split. |
 | `data/event_system/training_leave_scenario_out.json` | Leave-scenario-out split. |
 | `data/event_system/training_leave_family_out.json` | Leave-family-out split. |
-| `data/event_system/reduced_splits/ace_1h/training_stratified.json` | Fixed 10 train / 10 test split for bounded real-agent ablation runs. |
+| `data/event_system/reduced_splits/ace_1h/training_stratified.json` | Fixed 23 train / 23 test split for an approximately one-hour complete ablation suite. |
 
 The generic runner and ACE ablation runner can read the DVC split files
 directly when `--with-mock-mcp` is enabled. Stratified splits use top-level
