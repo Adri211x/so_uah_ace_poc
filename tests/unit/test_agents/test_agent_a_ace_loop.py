@@ -285,3 +285,85 @@ def test_playbook_injecting_agent_leaves_prompt_unchanged_when_playbook_is_empty
 
     assert response == "ok"
     assert inner.prompts == ["ALERT: service unavailable"]
+
+
+def test_ablation_configs_match_selected_experiment_modes() -> None:
+    """The six selected variants should resolve to explicit experiment behavior."""
+    from src.agents.agent_a_ace.ablations import AceAblationMode, build_experiment_config
+
+    baseline = build_experiment_config(AceAblationMode.BASELINE)
+    full = build_experiment_config(AceAblationMode.FULL, default_epochs=4)
+    single_epoch = build_experiment_config(AceAblationMode.SINGLE_EPOCH, default_epochs=4)
+    no_warmup = build_experiment_config(AceAblationMode.ONLINE_NO_WARMUP, default_epochs=4)
+    scoped = build_experiment_config(AceAblationMode.SCENARIO_SCOPED_PLAYBOOK, default_epochs=4)
+    failure_only = build_experiment_config(
+        AceAblationMode.FAILURE_ONLY_REFLECTION, default_epochs=4
+    )
+
+    assert baseline.agent_name == "agent_b_baseline"
+    assert baseline.warmup_enabled is False
+    assert full.agent_name == "agent_a_ace"
+    assert full.learning_epochs == 4
+    assert single_epoch.learning_epochs == 1
+    assert no_warmup.warmup_enabled is False
+    assert scoped.playbook_scope == "strict"
+    assert failure_only.reflection_outcomes == frozenset({"failure"})
+
+
+def test_update_playbook_can_keep_only_failure_reflections(tmp_path: Path) -> None:
+    """Failure-only ablation should exclude success insights from the playbook."""
+    playbook_path = tmp_path / "failure_only_playbook.json"
+    results = [
+        _agent_result(
+            sample_id="sample-success",
+            score=3,
+            matched_entities=["service targetPort", "container port", "connection refused"],
+        ),
+        _agent_result(sample_id="sample-failure", score=0, matched_entities=[]),
+    ]
+
+    playbook = update_playbook_from_results(
+        results,
+        playbook_path=playbook_path,
+        reflection_outcomes=frozenset({"failure"}),
+    )
+
+    assert len(playbook.entries) == 1
+    assert playbook.entries[0].helpful_count == 0
+    assert playbook.entries[0].harmful_count == 1
+    assert playbook.entries[0].source_sample_ids == ["sample-failure"]
+
+
+def test_strict_scenario_scope_does_not_fallback_to_other_scenarios() -> None:
+    """Scenario-scoped ablation should avoid unrelated playbook entries."""
+    playbook = Playbook(
+        entries=[
+            PlaybookEntry(
+                id="entry-routing",
+                text="Check Service targetPort against the container port.",
+                scenario="routing",
+                helpful_count=2,
+            ),
+            PlaybookEntry(
+                id="entry-crashloop",
+                text="Inspect CrashLoopBackOff container command first.",
+                scenario="crashloop",
+                helpful_count=10,
+            ),
+        ]
+    )
+
+    selected = select_playbook_entries(
+        playbook,
+        scenario="storage",
+        playbook_scope="strict",
+    )
+    prompt = build_generator_prompt(
+        "ALERT: volume mount failed",
+        playbook,
+        scenario="storage",
+        playbook_scope="strict",
+    )
+
+    assert selected == []
+    assert prompt == "ALERT: volume mount failed"

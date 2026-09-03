@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from src.common.cosine_similarity import CosineSimilarityResult
 from src.common.judge import JudgeVerdict
 from src.common.runner import run_agent_on_training_split
@@ -371,4 +373,311 @@ def test_runner_keeps_running_when_cosine_raises(tmp_path: Path) -> None:
 
     assert len(results) == 1
     assert results[0].cosine_similarity is None
+    assert output_file.exists()
+
+
+class ScenarioRecordingAgent:
+    """Stub that records scenario-aware runner calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def run_sync(self, user_prompt: str, *, scenario: str | None = None) -> str:
+        self.calls.append((user_prompt, scenario))
+        return "RCA includes broker-service evidence."
+
+
+def test_runner_forwards_scenario_to_agents_that_accept_it(tmp_path: Path) -> None:
+    """Scenario-aware agents should receive the split row scenario."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        [
+            {
+                "id": "sample-test",
+                "file": "test_case.json",
+                "split": "test",
+                "base_scenario": "kubernetes-data-pipeline",
+            }
+        ],
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "broker-service evidence",
+            "golden_entities": ["broker-service"],
+        },
+    )
+
+    agent = ScenarioRecordingAgent()
+    results = run_agent_on_training_split(
+        agent=agent,
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert len(results) == 1
+    assert agent.calls == [("ALERT test", "kubernetes-data-pipeline")]
+
+
+def test_runner_can_evaluate_non_test_partition(tmp_path: Path) -> None:
+    """Experiment warmup should be able to run over train rows."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "train_results.json"
+
+    _write_json(
+        training_file,
+        [
+            {"id": "sample-train", "file": "train_case.json", "split": "train"},
+            {"id": "sample-test", "file": "test_case.json", "split": "test"},
+        ],
+    )
+    _write_json(
+        dataset_dir / "train_case.json",
+        {
+            "id": "sample-train",
+            "input": {"alert_text": "ALERT train"},
+            "expected_output": "train evidence",
+            "golden_entities": ["train"],
+        },
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT test"},
+            "expected_output": "test evidence",
+            "golden_entities": ["test"],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        partition="train",
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-train"
+    assert "ALERT train" in results[0].rca_output
+
+
+def test_runner_accepts_dvc_assignments_object(tmp_path: Path) -> None:
+    """Runner should consume stratified DVC splits without exporting a flat file."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_stratified.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "stratified",
+            "assignments": [
+                {"id": "sample-train", "file": "train_case.json", "split": "train"},
+                {
+                    "id": "sample-test",
+                    "file": "test_case.json",
+                    "split": "test",
+                    "base_scenario": "routing",
+                },
+            ],
+        },
+    )
+    _write_json(
+        dataset_dir / "test_case.json",
+        {
+            "id": "sample-test",
+            "input": {"alert_text": "ALERT dvc"},
+            "expected_output": "routing evidence",
+            "golden_entities": ["routing"],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-test"
+    assert "ALERT dvc" in results[0].rca_output
+
+
+def test_runner_selects_named_dvc_fold(tmp_path: Path) -> None:
+    """Runner should select the requested fold from leave-out DVC splits."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    training_file = tmp_path / "training_leave_scenario_out.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "leave_scenario_out",
+            "folds": [
+                {
+                    "fold_name": "hold_out_a",
+                    "assignments": [{"id": "sample-a", "file": "case_a.json", "split": "test"}],
+                },
+                {
+                    "fold_name": "hold_out_b",
+                    "assignments": [{"id": "sample-b", "file": "case_b.json", "split": "test"}],
+                },
+            ],
+        },
+    )
+    _write_json(
+        dataset_dir / "case_a.json",
+        {
+            "id": "sample-a",
+            "input": {"alert_text": "ALERT A"},
+            "expected_output": "ignored",
+            "golden_entities": [],
+        },
+    )
+    _write_json(
+        dataset_dir / "case_b.json",
+        {
+            "id": "sample-b",
+            "input": {"alert_text": "ALERT B"},
+            "expected_output": "selected",
+            "golden_entities": [],
+        },
+    )
+
+    results = run_agent_on_training_split(
+        agent=FakeAgent(),
+        training_split_path=training_file,
+        output_path=output_file,
+        dataset_dir=dataset_dir,
+        judge_enabled=False,
+        cosine_enabled=False,
+        fold_name="hold_out_b",
+    )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-b"
+    assert "ALERT B" in results[0].rca_output
+
+
+def test_runner_requires_fold_when_dvc_split_has_multiple_folds(tmp_path: Path) -> None:
+    """Multi-fold DVC splits should fail clearly unless the caller chooses a fold."""
+    dataset_dir = tmp_path / "data" / "datasets"
+    dataset_dir.mkdir(parents=True)
+    training_file = tmp_path / "training_leave_family_out.json"
+    output_file = tmp_path / "results" / "agent_a.json"
+
+    _write_json(
+        training_file,
+        {
+            "split_type": "leave_family_out",
+            "folds": [
+                {"fold_name": "hold_out_config_error", "assignments": []},
+                {"fold_name": "hold_out_container_error", "assignments": []},
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Pass --fold"):
+        run_agent_on_training_split(
+            agent=FakeAgent(),
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+        )
+
+
+class MockMcpRecordingAgent:
+    """Scenario-aware agent used to verify managed mock MCP mode."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def run_sync(self, user_prompt: str, *, scenario: str | None = None) -> str:
+        self.calls.append((user_prompt, scenario))
+        return "RCA includes selected-service evidence."
+
+
+class FakeSplitRunnerCase:
+    """Tiny stand-in for event_system RunCase."""
+
+    def __init__(self) -> None:
+        self.case = type(
+            "Case",
+            (),
+            {
+                "scenario_ref": "sample-test",
+                "scenario_id": "routing",
+            },
+        )()
+        self.input = {"alert_text": "ALERT managed mock"}
+        self.expected_output = "selected-service evidence"
+        self.golden_entities = ["selected-service"]
+
+
+class FakeSplitRunner:
+    """Records SplitRunner iteration arguments without starting real MCP servers."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def iter_cases(self, split_type: str, fold_name: str, split: str):
+        self.calls.append((split_type, fold_name, split))
+        yield FakeSplitRunnerCase()
+
+
+def test_runner_can_use_splitrunner_managed_mock_mcp(tmp_path: Path) -> None:
+    """Managed mock MCP mode should delegate case iteration to SplitRunner."""
+    training_file = tmp_path / "training_stratified.json"
+    dataset_dir = tmp_path / "data" / "datasets"
+    cache_dir = tmp_path / "cache"
+    output_file = tmp_path / "results" / "agent_b.json"
+    dataset_dir.mkdir(parents=True)
+    cache_dir.mkdir()
+    _write_json(
+        training_file,
+        {
+            "split_type": "stratified",
+            "assignments": [{"id": "sample-test", "file": "case.json", "split": "test"}],
+        },
+    )
+
+    fake_runner = FakeSplitRunner()
+    agent = MockMcpRecordingAgent()
+    with patch("src.common.runner._build_split_runner", return_value=fake_runner):
+        results = run_agent_on_training_split(
+            agent=agent,
+            training_split_path=training_file,
+            output_path=output_file,
+            dataset_dir=dataset_dir,
+            judge_enabled=False,
+            cosine_enabled=False,
+            partition="test",
+            mock_mcp_enabled=True,
+            cache_dir=cache_dir,
+        )
+
+    assert len(results) == 1
+    assert results[0].sample_id == "sample-test"
+    assert results[0].score == 1
+    assert fake_runner.calls == [("stratified", "default", "test")]
+    assert agent.calls == [("ALERT managed mock", "routing")]
     assert output_file.exists()

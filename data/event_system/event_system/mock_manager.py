@@ -1,8 +1,7 @@
 """Manages the lifecycle of mock MCP servers and loads ground truth data.
 
-Reuses ``ScenarioData`` and ``create_*_app`` from ``mock_mcp_server`` to start/stop
-the mock MCP endpoints programmatically, and loads ground truth from dataset JSON
-files for evaluation.
+Starts the ``event_system.mock_mcp_server`` process for each cache source
+file and loads ground truth from dataset JSON files for evaluation.
 """
 
 from __future__ import annotations
@@ -10,21 +9,12 @@ from __future__ import annotations
 import json
 import logging
 import socket
-import threading
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from event_system.mock_mcp_server import (
-    ScenarioData,
-    create_elasticsearch_app,
-    create_loki_app,
-    create_mcp_app,
-    create_prometheus_app,
-    create_tempo_app,
-    run_server,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +24,6 @@ DEFAULT_PORTS = {
     "loki": 8093,
     "tempo": 8094,
     "prometheus": 8095,
-}
-
-_SERVER_FACTORIES = {
-    "kubectl": create_mcp_app,
-    "elasticsearch": create_elasticsearch_app,
-    "loki": create_loki_app,
-    "tempo": create_tempo_app,
-    "prometheus": create_prometheus_app,
 }
 
 
@@ -98,7 +80,7 @@ class MockManager:
         self._dataset_dir = Path(dataset_dir)
         self._host = host
         self._ports = {**DEFAULT_PORTS, **(ports or {})}
-        self._threads: list[threading.Thread] = []
+        self._process: subprocess.Popen[bytes] | None = None
         self._running = False
         self._current_source: str | None = None
         self._ground_truth_cache: dict[str, list[dict[str, Any]]] = {}
@@ -125,7 +107,7 @@ class MockManager:
             RuntimeError: If servers are already running.
         """
         if self._running:
-            if self._current_source == source_file:
+            if self._current_source == source_file and self._process_is_alive():
                 return self._build_endpoints()
             self.stop()
 
@@ -133,18 +115,11 @@ class MockManager:
         if not cache_path.exists():
             raise FileNotFoundError(f"Cache file not found: {cache_path}")
 
-        data = ScenarioData(str(cache_path))
-
-        self._threads = []
-        for name, factory in _SERVER_FACTORIES.items():
-            port = self._ports[name]
-            app = factory(data, host=self._host, port=port)
-            t = threading.Thread(
-                target=run_server, args=(app, name), daemon=True, name=f"mock-{name}"
-            )
-            t.start()
-            self._threads.append(t)
-
+        self._process = subprocess.Popen(
+            self._build_command(cache_path),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         self._running = True
         self._current_source = source_file
 
@@ -156,17 +131,49 @@ class MockManager:
     def stop(self) -> None:
         """Stop all running mock MCP servers.
 
-        Since servers run as daemon threads, we cannot gracefully stop them.
-        We clear state and let garbage collection handle the rest.
+        The mock is started as a subprocess so each source file can be
+        stopped before the next one binds the same MCP ports.
         """
         if not self._running:
             return
 
-        self._threads.clear()
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+        self._process = None
         self._running = False
         prev = self._current_source
         self._current_source = None
         logger.info("Mock MCP stopped (was serving %s)", prev)
+
+    def _build_command(self, cache_path: Path) -> list[str]:
+        return [
+            sys.executable,
+            str(Path(__file__).with_name("mock_mcp_server.py")),
+            "--cache",
+            str(cache_path),
+            "--host",
+            self._host,
+            "--kubectl-port",
+            str(self._ports["kubectl"]),
+            "--es-port",
+            str(self._ports["elasticsearch"]),
+            "--loki-port",
+            str(self._ports["loki"]),
+            "--tempo-port",
+            str(self._ports["tempo"]),
+            "--prometheus-port",
+            str(self._ports["prometheus"]),
+        ]
+
+    def _process_is_alive(self) -> bool:
+        return self._process is not None and self._process.poll() is None
 
     def _build_endpoints(self) -> MockEndpoints:
         return MockEndpoints(
@@ -188,6 +195,10 @@ class MockManager:
                 except OSError:
                     time.sleep(0.1)
             else:
+                if self._process is not None and self._process.poll() is not None:
+                    raise RuntimeError(
+                        f"Mock MCP process exited while waiting for {name} on port {port}."
+                    )
                 logger.warning("Timeout waiting for %s on port %d", name, port)
 
     def load_ground_truth(self, source_file: str, scenario_ref: str) -> GroundTruth | None:

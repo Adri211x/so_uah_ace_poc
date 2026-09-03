@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from src.agents.agent_a_ace.ablations import InsightOutcome
 from src.agents.agent_a_ace.curator import JsonPlaybookCurator
 from src.agents.agent_a_ace.reflector import reflect_batch
 from src.common.schemas import AgentResult, Playbook
@@ -19,6 +20,7 @@ def run_ace_learning_loop(
     playbook_path: Path | None = None,
     *,
     scenario_by_sample_id: dict[str, str] | None = None,
+    reflection_outcomes: frozenset[InsightOutcome] | None = None,
 ) -> Playbook:
     """Reflect evaluated results and merge lessons into the playbook.
 
@@ -26,12 +28,16 @@ def run_ace_learning_loop(
         results: Evaluated outputs from ``src.common.runner``.
         playbook_path: JSON playbook destination.
         scenario_by_sample_id: Optional sample-to-scenario lookup.
+        reflection_outcomes: Optional set of outcomes to keep from the
+            Reflector, used by ablation runs.
 
     Returns:
         Updated playbook.
     """
     resolved_path = playbook_path or DEFAULT_PLAYBOOK_PATH
     insights = reflect_batch(results, scenario_by_sample_id=scenario_by_sample_id)
+    if reflection_outcomes is not None:
+        insights = [insight for insight in insights if insight.outcome in reflection_outcomes]
     curator = JsonPlaybookCurator(resolved_path)
     playbook = curator.curate(insights)
     logger.info("Updated ACE playbook at %s with %d entries.", resolved_path, len(playbook.entries))
@@ -42,10 +48,12 @@ def update_playbook_from_results(
     results: list[AgentResult],
     playbook_path: Path,
     scenario_by_sample_id: dict[str, str] | None = None,
+    reflection_outcomes: frozenset[InsightOutcome] | None = None,
 ) -> Playbook:
     """Backward-compatible alias for ``run_ace_learning_loop``."""
     return run_ace_learning_loop(
         results,
         playbook_path=playbook_path,
         scenario_by_sample_id=scenario_by_sample_id,
+        reflection_outcomes=reflection_outcomes,
     )
